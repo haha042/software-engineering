@@ -47,7 +47,7 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
   }
   else if(page==='detail'){
     const p=await api('/products/'+selected);
-    html=heading(p.title)+`<div class="twocol"><section class="panel">${p.images.map(url=>`<img src="${url}" alt="商品图片" class="product-image">`).join('')}<p>${e(p.description)}</p><span class="badge" data-status="${e(p.status)}">${label(p.status)}</span><p>${e(p.owner_name)} · ${e(p.condition_text)}</p><span class="price">${money(p.price)}</span></section><section class="panel"><h2>核对交易约定</h2><div class="delivery-location"><strong>建议交货地点</strong><p>${e(p.delivery_location||'尚未填写，请与卖家协商')}</p><small>最终地点由双方协商确认</small></div><p>资金双方线下处理，平台不验证到账。</p>${p.trade_type==='exchange'?`<form id="offerform">${field('offerTitle','提供物品名称','text','required')}${field('offerCondition','成色','text','required')}<div class="field"><label for="offerDescription">提供物品描述</label><textarea id="offerDescription" required></textarea></div>${field('offerImages','1～6张物品图片','file','accept="image/png,image/jpeg" multiple required')}${field('topup','差价（元）','number','value="0" min="0" max="99999.99" step="0.01"')}<div class="field"><label for="payer">差价付款方向</label><select id="payer"><option value="buyer">买家付给卖家</option><option value="seller">卖家付给买家</option></select></div></form>`:''}${p.status==='live'&&user?.id!==p.owner_id?`<button data-contact-product="${p.id}">联系卖家</button>`:''}${(p.status==='live'||p.status==='rejected')&&user&&user.id===p.owner_id?`<button class="ghost" data-edit="${p.id}">修改并重新提交</button>`:''}${p.status==='live'?btn('buy','确认下单','primary'):'<p>物品暂不可交易。</p>'}<p class="muted">卖家48小时内接单，约定变更须结束原单后重新下单。</p></section></div>`
+    html=heading(p.title)+`<div class="twocol"><section class="panel">${p.images.map(url=>`<img src="${url}" alt="商品图片" class="product-image">`).join('')}<p>${e(p.description)}</p><span class="badge" data-status="${e(p.status)}">${label(p.status)}</span><p>${e(p.owner_name)} · ${e(p.condition_text)}</p><span class="price">${money(p.price)}</span></section><section class="panel"><h2>核对交易约定</h2><div class="delivery-location"><strong>建议交货地点</strong><p>${e(p.delivery_location||'尚未填写，请与卖家协商')}</p><small>最终地点由双方协商确认</small></div><p>资金双方线下处理，平台不验证到账。</p>${p.trade_type==='exchange'?`<form id="offerform">${field('offerTitle','提供物品名称','text','required')}${field('offerCondition','成色','text','required')}<div class="field"><label for="offerDescription">提供物品描述</label><textarea id="offerDescription" required></textarea></div>${field('offerImages','1～6张物品图片','file','accept="image/png,image/jpeg" multiple required')}${field('topup','差价（元）','number','value="0" min="0" max="99999.99" step="0.01"')}<div class="field"><label for="payer">差价付款方向</label><select id="payer"><option value="buyer">买家付给卖家</option><option value="seller">卖家付给买家</option></select></div></form>`:''}${p.status==='live'&&user?.id!==p.owner_id?`<button data-contact-product="${p.id}">联系卖家</button>`:''}${(p.status==='live'||p.status==='rejected')&&user&&user.id===p.owner_id?`<button class="ghost" data-edit="${p.id}">修改并重新提交</button>`:''}${p.status==='live'&&user&&user.id===p.owner_id?`<button class="ghost" data-product-state="off" data-product="${p.id}">下架</button>`:''}${p.status==='off'&&user&&user.id===p.owner_id?`<button class="ghost" data-product-state="relist" data-product="${p.id}">重新上架</button>`:''}${p.status==='live'?btn('buy','确认下单','primary'):'<p>物品暂不可交易。</p>'}<p class="muted">卖家48小时内接单，约定变更须结束原单后重新下单。</p></section></div>`
   }
     if(page==='publish'||page==='edit'){
       const editing=page==='edit';
@@ -215,4 +215,14 @@ export async function saveProductEdit({ $, api, files, toast, navigate, selected
   await api('/products/' + selected, 'PATCH', payload);
   toast('已提交，等待重新审核');
   await navigate('mine');
+}
+
+export async function changeProductState({ api, toast, navigate, id, action }) {
+  try {
+    const r = await api('/products/' + id + '/status', 'POST', { action });
+    toast(r.status === 'off' ? '已下架，市场上看不到这件物品了' : '已重新上架');
+    await navigate('mine');
+  } catch (err) {
+    toast(err.message || '操作失败');
+  }
 }

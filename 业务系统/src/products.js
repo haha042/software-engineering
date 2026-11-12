@@ -131,6 +131,27 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       });
       return send(201, { id, status: 'pending' });
     }
+    // —— 下架与重新上架（C05）：只有本人能操作；预订中不可下架；重提需要账号仍认证且未超配额 ——
+    if (method === 'POST' && /^\/api\/products\/\d+\/status$/.test(path)) {
+      const u = auth(req, 'student');
+      const id = Number(path.split('/')[3]);
+      const b = await body(req);
+      const action = b.action;
+      if (!['off', 'relist'].includes(action)) fail(400, '操作须为下架或重新上架');
+      const p = db.prepare('SELECT * FROM products WHERE id=?').get(id);
+      if (!p || p.owner_id !== u.id) fail(404, '物品不存在');
+      if (action === 'off') {
+        if (p.status === 'reserved') fail(409, '预订中的物品不能下架，请先结束订单');
+        if (p.status !== 'live') fail(409, '只有在售的物品可以下架');
+        db.prepare("UPDATE products SET status='off' WHERE id=?").run(id);
+        return send(200, { id, status: 'off' });
+      }
+      if (p.status !== 'off') fail(409, '只有已下架的物品可以重新上架');
+      if (!u.certified) fail(403, '账号认证已失效，请先恢复认证后再重新上架');
+      if (quota(u.id) >= 20) fail(409, '待审核及在售已达 20 件，请先处理其他物品');
+      db.prepare("UPDATE products SET status='live' WHERE id=?").run(id);
+      return send(200, { id, status: 'live' });
+    }
     // —— 编辑与驳回重提（C04）：驳回/在售可改，改完重新进入审核；预订中、审核中、已成交、草稿、已下架不允许 ——
     if (method === 'PATCH' && /^\/api\/products\/\d+$/.test(path)) {
       const u = auth(req, 'student');

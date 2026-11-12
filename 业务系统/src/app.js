@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createAccountRoutes} from './accounts.js';
 import {createProductRoutes} from './products.js';
 import {createAdminRoutes} from './admin.js';
+import {createCategoryRoutes} from './categories.js';
 import {createOrderRoutes} from './orders.js';
 import {createConversationRoutes} from './conversations.js';
 import {openDatabase} from './database.js';
@@ -40,6 +41,7 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   createAccountRoutes({...shared, session, images, hash, passwordHash, verify, randomBytes, publicProduct}),
   createConversationRoutes({...shared, hash}),
   createProductRoutes({...shared, session, images, amount, tx, quota, publicProduct}),
+  createCategoryRoutes({...shared, tx, audit}),
   createAdminRoutes({...shared, tx, audit, notice, publicProduct}),
   handleOrderRequest,
  ];

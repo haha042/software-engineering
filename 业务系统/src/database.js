@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,user_id INTEGER 
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,actor_id INTEGER REFERENCES users(id),action TEXT NOT NULL,target TEXT NOT NULL,detail TEXT,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS conversations(id INTEGER PRIMARY KEY,product_id INTEGER NOT NULL REFERENCES products(id),buyer_id INTEGER NOT NULL REFERENCES users(id),seller_id INTEGER NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL,UNIQUE(product_id,buyer_id,seller_id));
 CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY,conversation_id INTEGER NOT NULL REFERENCES conversations(id),sender_id INTEGER NOT NULL REFERENCES users(id),content TEXT NOT NULL,request_key TEXT NOT NULL,created_at INTEGER NOT NULL,read_at INTEGER,UNIQUE(sender_id,request_key));
+CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY,name TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'active',sort INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,disabled_at INTEGER);
 CREATE INDEX IF NOT EXISTS message_conversation ON messages(conversation_id,id);
 CREATE INDEX IF NOT EXISTS conversation_buyer ON conversations(buyer_id);
 CREATE INDEX IF NOT EXISTS conversation_seller ON conversations(seller_id);
@@ -24,6 +25,14 @@ CREATE INDEX IF NOT EXISTS conversation_seller ON conversations(seller_id);
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_location')){
  db.exec("ALTER TABLE products ADD COLUMN delivery_location TEXT NOT NULL DEFAULT ''");
 }
+// 分类改为单级表 + 商品引用 id；旧 category 文本保留作历史快照（见 docs/分类字段与历史商品兼容规则.md）。
+if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='category_id')){
+ db.exec('ALTER TABLE products ADD COLUMN category_id INTEGER');
+}
+db.exec(`INSERT OR IGNORE INTO categories(name,status,sort,created_at)
+ SELECT DISTINCT category,'active',0,${Date.now()} FROM products WHERE TRIM(category)<>'';
+ UPDATE products SET category_id=(SELECT id FROM categories c WHERE c.name=products.category)
+ WHERE category_id IS NULL AND TRIM(category)<>'';`);
 const userColumns=db.prepare('PRAGMA table_info(users)').all();
 for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
 return db;}

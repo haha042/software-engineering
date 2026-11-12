@@ -11,9 +11,37 @@ export async function renderAdminPage({page, user, api, e, heading, emptyState, 
   if(page==='admin'){
     if(user.role!=='admin')throw Error('需要管理员权限');
     const q=await api('/admin/queue');
-    html=`<section class="panel"><a href="#admin-users">账号管理 · 查看所有账号 →</a></section>`+heading('人工审核工作台','请在线下核验身份后审核。审核操作在服务端验证管理员权限。')+`<section class="panel"><h2>身份审核</h2>${q.certifications.map(c=>`<div class="notice"><b>${e(c.real_name)} · ${e(c.student_no)}</b><p>${e(c.username)}</p><button data-review="certifications:${c.id}:approve">已线下核验，通过</button> <button data-review="certifications:${c.id}:reject">驳回</button></div>`).join('')||'暂无待审申请'}</section><section class="panel"><h2>商品审核</h2>${q.products.map(p=>`<div class="notice"><h3>${e(p.title)}</h3><p>${e(p.description)}</p>${p.images.map(url=>`<img src="${url}" alt="审核图片" class="review-image" loading="lazy">`).join('')}<p>${label(p.trade_type)} · ${money(p.price)}</p><button data-review="products:${p.id}:approve">通过</button> <button data-review="products:${p.id}:reject">驳回</button></div>`).join('')||'暂无待审商品'}</section>`
+    html=`<section class="panel"><a href="#admin-users">账号管理 · 查看所有账号 →</a> <a href="#admin-categories">分类维护 →</a></section>`+heading('人工审核工作台','请在线下核验身份后审核。审核操作在服务端验证管理员权限。')+`<section class="panel"><h2>身份审核</h2>${q.certifications.map(c=>`<div class="notice"><b>${e(c.real_name)} · ${e(c.student_no)}</b><p>${e(c.username)}</p><button data-review="certifications:${c.id}:approve">已线下核验，通过</button> <button data-review="certifications:${c.id}:reject">驳回</button></div>`).join('')||'暂无待审申请'}</section><section class="panel"><h2>商品审核</h2>${q.products.map(p=>`<div class="notice"><h3>${e(p.title)}</h3><p>${e(p.description)}</p>${p.images.map(url=>`<img src="${url}" alt="审核图片" class="review-image" loading="lazy">`).join('')}<p>${label(p.trade_type)} · ${money(p.price)}</p><button data-review="products:${p.id}:approve">通过</button> <button data-review="products:${p.id}:reject">驳回</button></div>`).join('')||'暂无待审商品'}</section>`
+  }
+  if(page==='admin-categories'){
+    if(user.role!=='admin')throw Error('需要管理员权限');
+    const {categories}=await api('/admin/categories');
+    html=heading('分类维护','单级分类。停用后旧商品仍保留原分类名，只是发布和编辑时不能再选。')+`<section class="panel"><a href="#admin">返回管理工作台</a></section><section class="panel"><h2>新增分类</h2><form id="categoryform"><div class="field"><label for="categoryName">分类名称</label><input id="categoryName" name="name" maxlength="20" required placeholder="如：书籍教材"></div><div class="field"><label for="categorySort">排序值（小的排前面）</label><input id="categorySort" name="sort" type="number" value="0" min="0" max="9999"></div><button type="submit">新增分类</button></form></section><section class="panel"><h2>全部分类</h2>${categories.map(c=>`<article class="notice"><div class="row"><h3>${e(c.name)}</h3><span class="badge">${c.status==='active'?'启用中':'已停用'}</span></div><p class="muted">排序 ${c.sort} · 关联商品 ${c.product_count} 件${c.disabled_at?' · 停用于 '+new Date(c.disabled_at).toLocaleString():''}</p><button data-cat="rename:${c.id}">重命名</button> <button data-cat="${c.status==='active'?'disable':'enable'}:${c.id}">${c.status==='active'?'停用':'启用'}</button></article>`).join('')||'<p>还没有分类，先新增一个。</p>'}</section>`;
   }
   return html;
+}
+
+export async function saveCategory({$,api,toast,render}) {
+  const name=$('#categoryName').value.trim();
+  const sort=Number($('#categorySort').value||0);
+  if(!name)throw Error('请填写分类名称');
+  await api('/admin/categories','POST',{name,sort});
+  toast('分类已新增');
+  return render();
+}
+
+export async function categoryAction(spec, {api, toast, render}) {
+  const [action,id]=spec.split(':');
+  if(action==='rename'){
+    const name=prompt('新的分类名称（1～20 个字符）');
+    if(!name)return;
+    await api('/admin/categories/'+id,'PATCH',{name});
+    toast('已重命名');
+    return render();
+  }
+  await api('/admin/categories/'+id,'PATCH',{status:action==='disable'?'disabled':'active'});
+  toast(action==='disable'?'已停用，旧商品不受影响':'已启用');
+  return render();
 }
 
 export async function reviewItem(review, {api, toast, render}) {

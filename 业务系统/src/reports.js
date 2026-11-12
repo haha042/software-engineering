@@ -37,12 +37,16 @@ function evidence(list, fail, text) {
   });
 }
 
-export function createReportRoutes({ db, now, auth, body, fail, text, tx }) {
+export function createReportRoutes({ db, now, auth, body, fail, text, tx, audit, notice }) {
   ensureSchema(db);
   const count = id => db.prepare('SELECT COUNT(*) n FROM report_evidences WHERE report_id=?').get(id).n;
   const saveEvidence = (reportId, userId, items) => {
     for (const item of items) db.prepare('INSERT INTO report_evidences(report_id,uploader_id,kind,content,created_at) VALUES(?,?,?,?,?)').run(reportId, userId, item.kind, item.content, now());
   };
+  // 举报指向的对象：商品投诉卖家，用户投诉本人。
+  const targetOf = r => r.target_type === 'product'
+    ? db.prepare('SELECT p.owner_id user_id,p.title label FROM products p WHERE p.id=?').get(r.target_id)
+    : db.prepare('SELECT u.id user_id,u.username label FROM users u WHERE u.id=?').get(r.target_id);
 
   return async function handleReportRequest(req, url, send) {
     const path = url.pathname;
@@ -104,6 +108,39 @@ export function createReportRoutes({ db, now, auth, body, fail, text, tx }) {
       const u = auth(req);
       const rows = db.prepare(`SELECT r.*,(SELECT COUNT(*) FROM report_evidences e WHERE e.report_id=r.id) evidence_count FROM reports r WHERE r.reporter_id=? ORDER BY r.id DESC`).all(u.id);
       return send(200, rows);
+    }
+
+    // 管理端：待处理/已处理列表，带举报人、对象与证据条数。
+    if (path === '/api/admin/reports' && method === 'GET') {
+      const actor = auth(req, 'admin');
+      const status = (url.searchParams.get('status') || 'pending').trim();
+      if (!['pending', 'handled', 'all'].includes(status)) fail(400, '状态筛选须为 pending、handled 或 all');
+      const rows = db.prepare(`SELECT r.*,u.username reporter,(SELECT COUNT(*) FROM report_evidences e WHERE e.report_id=r.id) evidence_count FROM reports r JOIN users u ON u.id=r.reporter_id ${status === 'all' ? '' : 'WHERE r.status=?'} ORDER BY r.status='pending' DESC,r.id DESC`).all(...(status === 'all' ? [] : [status]));
+      audit(actor.id, 'read_reports', 'reports', `status=${status} count=${rows.length}`);
+      return send(200, rows.map(r => ({ ...r, target: targetOf(r) || null })));
+    }
+
+    // 管理端：记录处置结论与依据，并通知举报人；处置记录不可删除。
+    const decision = path.match(/^\/api\/admin\/reports\/(\d+)$/);
+    if (decision && method === 'POST') {
+      const actor = auth(req, 'admin');
+      const b = await body(req);
+      if (!['uphold', 'dismiss'].includes(b.action)) fail(400, '处置动作须为成立或不成立');
+      const result = text(b.result, 5, 500);
+      const id = Number(decision[1]);
+      const report = db.prepare('SELECT * FROM reports WHERE id=?').get(id);
+      if (!report) fail(404, '举报不存在');
+      if (report.status !== 'pending') fail(409, '该举报已处理');
+      const verdict = b.action === 'uphold' ? '成立' : '不成立';
+      tx(() => {
+        db.prepare('UPDATE reports SET status=?,result=?,handled_by=?,handled_at=? WHERE id=?').run('handled', result, actor.id, now(), id);
+        // 通知举报人结果；成立时提醒被举报方，但不向被举报方透露举报人身份。
+        notice(report.reporter_id, `举报结果：${verdict}。依据：${result}`);
+        const target = targetOf(report);
+        if (target && b.action === 'uphold' && b.notifyTarget === true) notice(target.user_id, `你收到一条举报，经核实${verdict}。依据：${result}`);
+        audit(actor.id, 'handle_report', id, `${verdict} ${result}`);
+      });
+      return send(200, { id, status: 'handled', result });
     }
   };
 }

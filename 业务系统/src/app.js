@@ -11,8 +11,9 @@ import {openDatabase} from './database.js';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(p,salt,64).toString('hex')}`;}
 function verify(p,stored){const [salt,h]=stored.split(':');return timingSafeEqual(scryptSync(p,salt,64),Buffer.from(h,'hex'));}
-class Failure extends Error{constructor(status,message){super(message);this.status=status;}}
-const fail=(s,m)=>{throw new Failure(s,m)};
+// 可选 code：稳定的业务错误码，供前端区分「版本过期需刷新」等场景；旧调用不传时行为不变。
+class Failure extends Error{constructor(status,message,code){super(message);this.status=status;this.code=code;}}
+const fail=(s,m,code)=>{throw new Failure(s,m,code)};
 const text=(x,min=1,max=2000)=>{if(typeof x!=='string'||x.trim().length<min||x.trim().length>max)fail(400,`文字须为${min}～${max}字符`);return x.trim()};
 function amount(v){if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>99999.99||Math.abs(v*100-Math.round(v*100))>1e-6)fail(400,'金额范围0～99999.99，最多两位小数');return Math.round(v*100)}
 function images(value){if(!Array.isArray(value)||value.length<1||value.length>6)fail(400,'须提供1～6张图片');return value.map(v=>{if(typeof v!=='string')fail(400,'图片格式错误');const match=/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(v);if(!match)fail(400,'仅允许PNG/JPEG图片');const b=Buffer.from(match[2],'base64');const png=b.length>=24&&b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))&&b.subarray(12,16).toString()==='IHDR'&&b.readUInt32BE(16)>0&&b.readUInt32BE(20)>0;const jpeg=b.length>=4&&b[0]===255&&b[1]===216&&b.at(-2)===255&&b.at(-1)===217;if(b.length>5242880||!(match[1]==='png'?png:jpeg))fail(400,'图片内容或大小不合要求');return v})}
@@ -35,7 +36,7 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
  function auth(req,role){const u=session(req);if(!u)fail(401,'请先登录');if(role==='admin'&&u.role!=='admin')fail(403,'需要管理员权限');if(role==='student'&&(u.role!=='student'||!u.certified))fail(403,'需要已认证学生身份');if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==u.csrf)fail(403,'请求校验失败，请刷新登录');return u}
  const publicProduct=p=>({...p,images:db.prepare('SELECT id FROM product_images WHERE product_id=?').all(p.id).map(x=>`/api/images/${x.id}`)});
  const shared = {db, now, auth, body, fail, text};
- const {handleOrderRequest, expire} = createOrderRoutes({...shared, images, amount, tx, quota, notice});
+ const {handleOrderRequest, expire} = createOrderRoutes({...shared, session, images, amount, tx, quota, notice});
  const routes = [
   createAccountRoutes({...shared, session, images, hash, passwordHash, verify, randomBytes, publicProduct}),
   createConversationRoutes({...shared, hash}),
@@ -52,6 +53,6 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
    if (res.writableEnded) return;
   }
   fail(404,'接口不存在');
- }catch(e){if(e instanceof Failure)return send(e.status,{error:e.message});console.error(e);send(500,{error:'服务异常，操作未完成'})}});
+ }catch(e){if(e instanceof Failure)return send(e.status,{error:e.message,...(e.code?{code:e.code}:{})});console.error(e);send(500,{error:'服务异常，操作未完成'})}});
  const interval=setInterval(()=>{try{expire()}catch(e){console.error('timeout job failed',e)}},60000);interval.unref();server.on('close',()=>{clearInterval(interval);db.close()});return {server,db,expire};
 }

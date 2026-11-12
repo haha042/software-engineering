@@ -28,10 +28,57 @@ CREATE INDEX IF NOT EXISTS conversation_seller ON conversations(seller_id);
     UNIQUE(user_id, product_id)
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS favorites_user ON favorites(user_id, id DESC)');
+// —— 订单模块（B02～B07）：订单侧图片副本、协商取消申请、交易评价 ——
+// 订单图片副本与商品图片解耦：商品编辑删图后历史订单仍读得到下单时的原图。
+db.exec(`CREATE TABLE IF NOT EXISTS order_images(
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  kind TEXT NOT NULL,
+  source_image_id INTEGER,
+  data_url TEXT NOT NULL
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS order_images_order ON order_images(order_id, id)');
+// 一次申请一行：编号、申请人和时间、回应人和时间、结果与理由完整留痕。
+db.exec(`CREATE TABLE IF NOT EXISTS cancel_requests(
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  requested_by INTEGER NOT NULL REFERENCES users(id),
+  requested_at INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  responded_by INTEGER REFERENCES users(id),
+  responded_at INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS cancel_requests_order ON cancel_requests(order_id, id)');
+// 每单每人一条评价；被评价人可回复一次，原评价不可改删。
+db.exec(`CREATE TABLE IF NOT EXISTS reviews(
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  reviewer_id INTEGER NOT NULL REFERENCES users(id),
+  reviewee_id INTEGER NOT NULL REFERENCES users(id),
+  rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  reply TEXT,
+  reply_at INTEGER,
+  UNIQUE(order_id, reviewer_id)
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS reviews_order ON reviews(order_id, id)');
 // 兼容已有数据库，保留旧商品，未填写地点时由页面明确提示。
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_location')){
  db.exec("ALTER TABLE products ADD COLUMN delivery_location TEXT NOT NULL DEFAULT ''");
 }
 const userColumns=db.prepare('PRAGMA table_info(users)').all();
 for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
+// 商品内容版本：新建商品为 v1；内容变更（编辑/重提）由 products.js 递增；审核只改状态不改版本。
+if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='version')){
+ db.exec('ALTER TABLE products ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+}
+const orderColumns=db.prepare('PRAGMA table_info(orders)').all();
+if(!orderColumns.some(c=>c.name==='completed_at')){
+ db.exec('ALTER TABLE orders ADD COLUMN completed_at INTEGER');
+ // 已有完成订单按最后一次本人确认事件回填评价期限起点；无事件时保持空值，不伪装完成时间。
+ db.exec("UPDATE orders SET completed_at=(SELECT MAX(e.created_at) FROM events e WHERE e.order_id=orders.id AND e.action='confirm') WHERE status='completed'");
+}
+if(!orderColumns.some(c=>c.name==='reject_reason'))db.exec('ALTER TABLE orders ADD COLUMN reject_reason TEXT');
 return db;}

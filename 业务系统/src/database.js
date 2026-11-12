@@ -26,4 +26,7 @@ if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_l
 }
 const userColumns=db.prepare('PRAGMA table_info(users)').all();
 for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
+// 账号处置：normal / limited（7 天内禁止新增交易）/ banned（30 天禁止登录）；两个到期时间用于惰性恢复。
+const accountColumns=[['status',"TEXT NOT NULL DEFAULT 'normal'"],['limited_until','INTEGER NOT NULL DEFAULT 0'],['banned_until','INTEGER NOT NULL DEFAULT 0'],['status_reason',"TEXT NOT NULL DEFAULT ''"]];
+for(const [name,definition] of accountColumns)if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
 return db;}

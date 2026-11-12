@@ -20,6 +20,14 @@ CREATE INDEX IF NOT EXISTS message_conversation ON messages(conversation_id,id);
 CREATE INDEX IF NOT EXISTS conversation_buyer ON conversations(buyer_id);
 CREATE INDEX IF NOT EXISTS conversation_seller ON conversations(seller_id);
 `);
+  db.exec(`CREATE TABLE IF NOT EXISTS favorites(
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    created_at INTEGER NOT NULL,
+    UNIQUE(user_id, product_id)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS favorites_user ON favorites(user_id, id DESC)');
 // 兼容已有数据库，保留旧商品，未填写地点时由页面明确提示。
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_location')){
  db.exec("ALTER TABLE products ADD COLUMN delivery_location TEXT NOT NULL DEFAULT ''");

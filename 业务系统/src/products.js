@@ -131,6 +131,35 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       });
       return send(201, { id, status: 'pending' });
     }
+    // —— 收藏（C06）：需要认证；每人最多 100 件；重复收藏幂等；失效商品仍返回但带 available 标记 ——
+    if (path === '/api/favorites' && method === 'GET') {
+      const u = auth(req, 'student');
+      const rows = db.prepare(`SELECT f.id AS favorite_id, f.created_at AS favorited_at, p.*
+        FROM favorites f JOIN products p ON p.id=f.product_id
+        WHERE f.user_id=? ORDER BY f.id DESC`).all(u.id);
+      return send(200, rows.map(r => ({
+        ...publicProduct(r),
+        favoriteId: r.favorite_id,
+        favoritedAt: r.favorited_at,
+        available: r.status === 'live'
+      })));
+    }
+    let favMatch = path.match(/^\/api\/products\/(\d+)\/favorite$/);
+    if (favMatch && (method === 'POST' || method === 'DELETE')) {
+      const u = auth(req, 'student', '收藏需要先完成校园认证');
+      const id = +favMatch[1];
+      if (!db.prepare('SELECT id FROM products WHERE id=?').get(id)) fail(404, '物品不存在');
+      const exists = db.prepare('SELECT id FROM favorites WHERE user_id=? AND product_id=?').get(u.id, id);
+      if (method === 'DELETE') {
+        if (exists) db.prepare('DELETE FROM favorites WHERE id=?').run(exists.id);
+        return send(200, { ok: true, favorited: false });
+      }
+      if (exists) return send(200, { ok: true, favorited: true, duplicated: true });
+      const n = db.prepare('SELECT COUNT(*) n FROM favorites WHERE user_id=?').get(u.id).n;
+      if (n >= 100) fail(409, '收藏已达 100 件上限，请先清理不看的物品');
+      db.prepare('INSERT INTO favorites(user_id,product_id,created_at) VALUES(?,?,?)').run(u.id, id, now());
+      return send(201, { ok: true, favorited: true });
+    }
     // —— 下架与重新上架（C05）：只有本人能操作；预订中不可下架；重提需要账号仍认证且未超配额 ——
     if (method === 'POST' && /^\/api\/products\/\d+\/status$/.test(path)) {
       const u = auth(req, 'student');

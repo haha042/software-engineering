@@ -7,6 +7,7 @@ import {createProductRoutes} from './products.js';
 import {createAdminRoutes} from './admin.js';
 import {createOrderRoutes} from './orders.js';
 import {createConversationRoutes} from './conversations.js';
+import {createGrantRoutes} from './grants.js';
 import {openDatabase} from './database.js';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(p,salt,64).toString('hex')}`;}
@@ -41,6 +42,7 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   createConversationRoutes({...shared, hash}),
   createProductRoutes({...shared, session, images, amount, tx, quota, publicProduct}),
   createAdminRoutes({...shared, tx, audit, notice, publicProduct}),
+  createGrantRoutes({...shared, tx, audit, notice}),
   handleOrderRequest,
  ];
  const server=createServer(async(req,res)=>{const send=(status,data,headers={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data))};try{

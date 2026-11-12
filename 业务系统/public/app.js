@@ -1,6 +1,6 @@
 import {createMessages} from './messages.js';
 import {renderAccountPage, createAccountActions} from './accounts.js';
-import {renderAdminPage, filterAccounts, reviewItem} from './admin.js';
+import {renderAdminPage, filterAccounts, reviewItem, saveCategory, categoryAction} from './admin.js';
 import {renderOrderPage, placeOrder, readNotification, updateOrder} from './orders.js';
 import {renderProductPage, publishProduct} from './products.js';
 
@@ -112,7 +112,7 @@ const accountActions = createAccountActions({
 });
 const productActions = {$, api, files, toast, navigate};
 const orderActions = {...productActions, render};
-const adminActions = {api, toast, render};
+const adminActions = {$, api, toast, render};
 
 async function render(){
   if(loading)return;
@@ -150,7 +150,7 @@ async function render(){
       html = await renderProductPage(productContext);
     } else if (page === 'notifications' || page === 'orders' || /^orders\/\d+$/.test(page)) {
       html = await renderOrderPage({...context, label, money});
-    } else if (page === 'admin' || page === 'admin-users' || /^admin-users\/\d+$/.test(page)) {
+    } else if (page === 'admin' || page === 'admin-users' || page === 'admin-categories' || /^admin-users\/\d+$/.test(page)) {
       html = await renderAdminPage({...context, label, money});
     }
     $('#app').innerHTML=html;
@@ -202,6 +202,7 @@ document.addEventListener('submit',async ev=>{
     if (ev.target.id === 'profileform') return await accountActions.saveProfile();
     if (ev.target.id === 'certform') return await accountActions.certify();
     if (ev.target.id === 'publishform') return await publishProduct(productActions);
+    if (ev.target.id === 'categoryform') return await saveCategory(adminActions);
   }
   catch(err){
     formError(err,ev.target)
@@ -243,6 +244,7 @@ document.addEventListener('click',async ev=>{
       return render()
     }
     if (b.dataset.review) return await reviewItem(b.dataset.review, adminActions);
+    if (b.dataset.cat) return await categoryAction(b.dataset.cat, adminActions);
     if (b.dataset.read) return await readNotification(b.dataset.read, orderActions);
     if (b.dataset.order) return await updateOrder(b.dataset.order, orderActions);
     if(b.dataset.action==='auth'){

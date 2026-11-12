@@ -131,6 +131,42 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       });
       return send(201, { id, status: 'pending' });
     }
+    // —— 编辑与驳回重提（C04）：驳回/在售可改，改完重新进入审核；预订中、审核中、已成交、草稿、已下架不允许 ——
+    if (method === 'PATCH' && /^\/api\/products\/\d+$/.test(path)) {
+      const u = auth(req, 'student');
+      const id = Number(path.slice(path.lastIndexOf('/') + 1));
+      const p = db.prepare('SELECT * FROM products WHERE id=?').get(id);
+      if (!p || (p.owner_id !== u.id && u.role !== 'admin')) fail(404, '物品不存在');
+      if (p.status === 'reserved') fail(409, '预订中的物品不能修改，请等这笔订单结束');
+      if (p.status === 'pending') fail(409, '审核中的物品不能修改，请等审核结果');
+      if (p.status === 'sold') fail(409, '已成交的物品不能修改');
+      if (p.status === 'draft') fail(409, '草稿请用草稿接口保存');
+      if (p.status === 'off') fail(409, '已下架的物品不能直接修改，请先重新上架');
+      const b = await body(req);
+      const type = b.tradeType === undefined ? p.trade_type : b.tradeType;
+      if (!['sale', 'gift', 'exchange'].includes(type)) fail(400, '交易方式错误');
+      const rawPrice = b.price === undefined ? p.price / 100 : (typeof b.price === 'number' ? b.price : Number(b.price));
+      const price = type === 'exchange' ? null : type === 'gift' ? 0 : amount(rawPrice);
+      if (type === 'sale' && price <= 0) fail(400, '出售价格须大于0');
+      const expectation = type === 'exchange' ? text(b.expectation === undefined ? p.expectation : b.expectation) : '';
+      const imgs = b.images === undefined ? null : images(b.images);
+      tx(() => {
+        db.prepare("UPDATE products SET title=?,category=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL WHERE id=?")
+          .run(text(b.title === undefined ? p.title : b.title, 1, 80),
+            text(b.category === undefined ? p.category : b.category, 1, 40),
+            text(b.condition === undefined ? p.condition_text : b.condition, 1, 40),
+            text(b.description === undefined ? p.description : b.description),
+            type, price, expectation,
+            text(b.deliveryLocation === undefined ? p.delivery_location : b.deliveryLocation, 1, 200),
+            id);
+        if (imgs) {
+          db.prepare('DELETE FROM product_images WHERE product_id=?').run(id);
+          for (const img of imgs) db.prepare('INSERT INTO product_images(product_id,data_url) VALUES(?,?)').run(id, img);
+        }
+      });
+      const updated = db.prepare('SELECT * FROM products WHERE id=?').get(id);
+      return send(200, { ...publicProduct(updated), resubmitted: updated.status === 'pending' });
+    }
     let match = path.match(/^\/api\/products\/(\d+)$/); if (match && method === 'GET') { const p = db.prepare('SELECT p.*,u.username owner_name FROM products p JOIN users u ON u.id=p.owner_id WHERE p.id=?').get(+match[1]); if (!p) fail(404, '商品不存在'); const u = session(req); const participant = u && db.prepare('SELECT id FROM orders WHERE product_id=? AND (buyer_id=? OR seller_id=?)').get(p.id, u.id, u.id); if (p.status !== 'live' && u?.id !== p.owner_id && u?.role !== 'admin' && !participant) fail(404, '商品不存在或不可见'); return send(200, publicProduct(p)) }
     match = path.match(/^\/api\/images\/(\d+)$/); if (match && method === 'GET') { const img = db.prepare('SELECT i.*,p.status,p.owner_id FROM product_images i JOIN products p ON p.id=i.product_id WHERE i.id=?').get(+match[1]); if (!img) fail(404, '图片不存在'); const u = session(req); if (img.status !== 'live' && u?.id !== img.owner_id && u?.role !== 'admin' && !(u && db.prepare('SELECT id FROM orders WHERE product_id=? AND (buyer_id=? OR seller_id=?)').get(img.product_id, u.id, u.id))) fail(404, '图片不可见'); const [prefix, data] = img.data_url.split(','); res.writeHead(200, { 'Content-Type': prefix.includes('png') ? 'image/png' : 'image/jpeg', 'Cache-Control': 'private, no-store' }); return res.end(Buffer.from(data, 'base64')) }
   }

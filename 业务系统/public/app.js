@@ -2,7 +2,7 @@ import {createMessages} from './messages.js';
 import {renderAccountPage, createAccountActions} from './accounts.js';
 import {renderAdminPage, filterAccounts, reviewItem} from './admin.js';
 import {renderOrderPage, placeOrder, readNotification, updateOrder} from './orders.js';
-import {renderProductPage, publishProduct} from './products.js';
+import {renderProductPage, publishProduct, applyFilters, resetFilters} from './products.js';
 
 const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"']/g,c=>({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -202,6 +202,7 @@ document.addEventListener('submit',async ev=>{
     if (ev.target.id === 'profileform') return await accountActions.saveProfile();
     if (ev.target.id === 'certform') return await accountActions.certify();
     if (ev.target.id === 'publishform') return await publishProduct(productActions);
+    if (ev.target.id === 'filterform') return await applyFilters(productActions);
   }
   catch(err){
     formError(err,ev.target)
@@ -226,6 +227,7 @@ document.addEventListener('click',async ev=>{
       page=await messages.openConversation(body);history.replaceState(null,'','#'+page);return render();
     }
     if(b.dataset.action==='older-messages'){await messages.syncChat(true);return;}
+    if(b.dataset.action==='reset-filters'){resetFilters();await navigate('market');return;}
     if (accountActions.handleAvatarClick(b)) return;
     if(b.dataset.page){
       page=b.dataset.page;

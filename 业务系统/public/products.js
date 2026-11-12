@@ -1,13 +1,46 @@
+// 市场页筛选状态：跨渲染保留，重置时回到默认列表。
+const filters = {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: ''};
+const active = () => Object.entries(filters).filter(([, v]) => v !== '');
+export function resetFilters() {
+  Object.assign(filters, {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: ''});
+}
+export async function applyFilters({$, navigate}) {
+  const form = $('#filterform');
+  if (!form) return;
+  filters.q = form.elements.q.value.trim();
+  filters.category = form.elements.category.value;
+  filters.tradeType = form.elements.tradeType.value;
+  filters.condition = form.elements.condition.value;
+  filters.minPrice = form.elements.minPrice.value.trim();
+  filters.maxPrice = form.elements.maxPrice.value.trim();
+  return navigate('market');
+}
+const options = (values, current) => ['<option value="">全部</option>'].concat(values.map(v => `<option value="${escapeAttr(v)}"${v === current ? ' selected' : ''}>${escapeAttr(v)}</option>`)).join('');
+const escapeAttr = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+function filterBar(facets) {
+  return `<form id="filterform" class="filter-bar" role="search" aria-label="筛选在售物品">
+<div class="field"><label for="q">关键词</label><input id="q" name="q" type="search" value="${escapeAttr(filters.q)}" placeholder="标题或描述"></div>
+<div class="field"><label for="category">分类</label><select id="category" name="category">${options(facets.categories, filters.category)}</select></div>
+<div class="field"><label for="tradeType">交易方式</label><select id="tradeType" name="tradeType">${['<option value="">全部</option>', `<option value="sale"${filters.tradeType === 'sale' ? ' selected' : ''}>出售</option>`, `<option value="gift"${filters.tradeType === 'gift' ? ' selected' : ''}>免费转让</option>`, `<option value="exchange"${filters.tradeType === 'exchange' ? ' selected' : ''}>以物易物</option>`].join('')}</select></div>
+<div class="field"><label for="condition">成色</label><select id="condition" name="condition">${options(facets.conditions, filters.condition)}</select></div>
+<div class="field price-range"><label for="minPrice">价格区间（元）</label><div class="range-inputs"><input id="minPrice" name="minPrice" type="number" min="0" max="99999.99" step="0.01" value="${escapeAttr(filters.minPrice)}" placeholder="最低" aria-label="最低价"><span aria-hidden="true">～</span><input id="maxPrice" name="maxPrice" type="number" min="0" max="99999.99" step="0.01" value="${escapeAttr(filters.maxPrice)}" placeholder="最高" aria-label="最高价"></div></div>
+<div class="filter-actions"><button class="primary">筛选</button><button type="button" data-action="reset-filters">重置</button></div>
+</form>`;
+}
 export async function renderProductPage({page, user, selected, api, e, btn, field, heading, emptyState, card, label, money}) {
   let html = '';
   if(page==='market'){
-    const ps=await api('/products');
+    const facets=await api('/products/facets');
+    const query=new URLSearchParams(active()).toString();
+    const ps=await api('/products'+(query?'?'+query:''));
     let emptyAction='',emptyHint='过段时间再来看看，也欢迎分享你的闲置。';
     if(!user)emptyAction=btn('auth','登录，发布闲置','primary');
     else if(user.role==='student')emptyAction=user.certified?'<button data-page="publish" class="primary">发布我的闲置</button>':'<button data-page="cert" class="primary">前往身份认证</button>';
     else if(user.role==='admin')emptyHint='新的校园好物正在等待上架，稍后再来看看吧。';
-    const empty=`<section class="empty-state market-empty"><div class="empty-illustration" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><path d="M14 23h36v29H14zM10 23l9-12h26l9 12M32 12v11M25 34c2 5 12 5 14 0"/><path d="M48 6v8M44 10h8"/></svg></div><h2>好物暂时歇个脚</h2><p>目前暂无在售闲置。<br>${emptyHint}</p>${emptyAction}</section>`;
-    html=heading('让闲置继续发光','发布前人工审核，下单即锁定物品，交付后双方确认完成。')+`<div class="grid">${ps.map(card).join('')||empty}</div>`
+    const filtered=active().length>0;
+    const empty=`<section class="empty-state market-empty"><div class="empty-illustration" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><path d="M14 23h36v29H14zM10 23l9-12h26l9 12M32 12v11M25 34c2 5 12 5 14 0"/><path d="M48 6v8M44 10h8"/></svg></div><h2>${filtered?'没有符合条件的物品':'好物暂时歇个脚'}</h2><p>${filtered?'换个关键词、放宽价格区间，或者清空筛选条件再看一次。':'目前暂无在售闲置。<br>'+emptyHint}</p>${filtered?'<button data-action="reset-filters" class="primary">清空筛选条件</button>':emptyAction}</section>`;
+    const summary=filtered?`<p class="filter-summary" role="status">筛选到 ${ps.length} 件在售物品</p>`:'';
+    html=heading('让闲置继续发光','发布前人工审核，下单即锁定物品，交付后双方确认完成。')+filterBar(facets)+summary+`<div class="grid">${ps.map(card).join('')||empty}</div>`
   }
   else if(page==='detail'){
     const p=await api('/products/'+selected);

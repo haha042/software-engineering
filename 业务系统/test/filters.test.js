@@ -5,6 +5,9 @@ const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCA
 test('C01 市场筛选：关键词、分类、方式、成色、价格区间可组合，空结果与非法参数有明确响应', async t => {
   let time = Date.now();
   const app = createApp({database: ':memory:', adminPassword: 'AdminPassword123!', clock: () => time});
+  // A03 起发布走分类校验：为原有步骤补上分类夹具（真实流程由管理员维护分类）。
+  for (const name of ['书籍教材', '生活用品', '数码配件', '运动器材', '其他'])
+    app.db.prepare("INSERT OR IGNORE INTO categories(name,status,sort,created_at) VALUES(?,'active',0,?)").run(name, Date.now());
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   t.after(() => new Promise(r => app.server.close(r)));
   const base = 'http://127.0.0.1:' + app.server.address().port;

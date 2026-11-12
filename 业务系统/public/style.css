@@ -385,3 +385,8 @@ button[data-order$=":reject"]:not(:disabled):is(:hover, :focus-visible) {
 .filter-bar .filter-actions button { height: 40px; white-space: nowrap; }
 .filter-summary { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
 @media (max-width: 900px) { .filter-bar .field, .filter-bar .field:first-child, .filter-bar .field.price-range { flex: 1 1 100%; } .filter-bar .filter-actions { margin-left: 0; width: 100%; } .filter-bar .filter-actions button { flex: 1; } }
+
+/* 发布页草稿条（C03） */
+.draft-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; margin-bottom: 16px; background: var(--surface-alt, #f5f7fb); border: 1px dashed var(--line); border-radius: var(--radius); }
+.draft-hint { color: var(--muted); font-size: 13px; }
+.field.invalid input, .field.invalid select, .field.invalid textarea { border-color: #c0392b; box-shadow: 0 0 0 3px rgba(192, 57, 43, .12); }

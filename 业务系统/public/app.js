@@ -2,7 +2,7 @@ import {createMessages} from './messages.js';
 import {renderAccountPage, createAccountActions} from './accounts.js';
 import {renderAdminPage, filterAccounts, reviewItem} from './admin.js';
 import {renderOrderPage, placeOrder, readNotification, updateOrder} from './orders.js';
-import {renderProductPage, publishProduct, applyFilters, resetFilters} from './products.js';
+import {renderProductPage, publishProduct, saveDraft, applyFilters, resetFilters} from './products.js';
 
 const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"']/g,c=>({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'

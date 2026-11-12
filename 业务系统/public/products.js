@@ -49,7 +49,32 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
     const p=await api('/products/'+selected);
     html=heading(p.title)+`<div class="twocol"><section class="panel">${p.images.map(url=>`<img src="${url}" alt="商品图片" class="product-image">`).join('')}<p>${e(p.description)}</p><span class="badge" data-status="${e(p.status)}">${label(p.status)}</span><p>${e(p.owner_name)} · ${e(p.condition_text)}</p><span class="price">${money(p.price)}</span></section><section class="panel"><h2>核对交易约定</h2><div class="delivery-location"><strong>建议交货地点</strong><p>${e(p.delivery_location||'尚未填写，请与卖家协商')}</p><small>最终地点由双方协商确认</small></div><p>资金双方线下处理，平台不验证到账。</p>${p.trade_type==='exchange'?`<form id="offerform">${field('offerTitle','提供物品名称','text','required')}${field('offerCondition','成色','text','required')}<div class="field"><label for="offerDescription">提供物品描述</label><textarea id="offerDescription" required></textarea></div>${field('offerImages','1～6张物品图片','file','accept="image/png,image/jpeg" multiple required')}${field('topup','差价（元）','number','value="0" min="0" max="99999.99" step="0.01"')}<div class="field"><label for="payer">差价付款方向</label><select id="payer"><option value="buyer">买家付给卖家</option><option value="seller">卖家付给买家</option></select></div></form>`:''}${p.status==='live'&&user?.id!==p.owner_id?`<button data-contact-product="${p.id}">联系卖家</button>`:''}${p.status==='live'?btn('buy','确认下单','primary'):'<p>物品暂不可交易。</p>'}<p class="muted">卖家48小时内接单，约定变更须结束原单后重新下单。</p></section></div>`
   }
-    if(page==='publish')html=heading('发布校园闲置','1～6张JPG/PNG，每张不超过5 MiB，提交后等待审核。')+`<section class="panel"><form id="publishform">${field('title','标题','text','required maxlength="80"')}<div class="formgrid">${field('category','分类','text','required placeholder="如：书籍教材"')}${field('condition','成色','text','required')}<div class="field"><label for="tradeType">交易方式</label><select id="tradeType"><option value="sale">出售</option><option value="gift">免费转让</option><option value="exchange">以物易物</option></select></div>${field('price','出售价格（元）','number','value="1" min="0" max="99999.99" step="0.01"')}</div><div class="field"><label for="description">描述</label><textarea id="description" required></textarea></div>${field('deliveryLocation','建议交货地点','text','required maxlength="200" placeholder="如：北校区图书馆正门"')}<p class="muted">填写校内公共地点，具体交付时间与地点可由双方协商。</p>${field('expectation','期望交换条件（交换必填）')}${field('images','图片','file','accept="image/png,image/jpeg" multiple required')}<button class="primary">提交审核</button></form></section>`;
+    if(page==='publish'){
+      const loaded=await api('/products/draft').catch(()=>null);
+      const d=(loaded&&loaded.draft)||null;
+      const v=k=>e(d&&d[k]!==null&&d[k]!==undefined?String(d[k]):'');
+      const yuan=k=>d&&d[k]!==null&&d[k]!==undefined?String(Number(d[k])/100):'';
+      const sel=t=>d&&d.tradeType===t?' selected':'';
+      html=heading('发布校园闲置','1～6张JPG/PNG，每张不超过5 MiB。草稿只有你自己可见，提交后才进入审核。')
+        +`<section class="panel"><form id="publishform" data-draft-id="${d?d.id:''}">`
+        +`<input type="hidden" id="draftId" value="${d?d.id:''}">`
+        +`<div class="draft-bar"><span class="draft-hint">${d?'已恢复上次保存的草稿，继续编辑后可以直接提交':'还没有草稿，内容可以随时先存着'}</span>`
+        +`<button type="button" class="ghost" data-action="save-draft">保存草稿</button></div>`
+        +`<div class="field"><label for="title">标题</label><input id="title" name="title" maxlength="80" value="${v('title')}"></div>`
+        +`<div class="formgrid">`
+        +`<div class="field"><label for="category">分类</label><input id="category" name="category" placeholder="如：书籍教材" value="${v('category')}"></div>`
+        +`<div class="field"><label for="condition">成色</label><input id="condition" name="condition" placeholder="如：九成新" value="${v('condition')}"></div>`
+        +`<div class="field"><label for="tradeType">交易方式</label><select id="tradeType"><option value="sale"${sel('sale')}>出售</option><option value="gift"${sel('gift')}>免费转让</option><option value="exchange"${sel('exchange')}>以物易物</option></select></div>`
+        +`<div class="field"><label for="price">出售价格（元）</label><input id="price" name="price" type="number" min="0" max="99999.99" step="0.01" value="${yuan('price')}"></div>`
+        +`</div>`
+        +`<div class="field"><label for="description">描述</label><textarea id="description" name="description">${v('description')}</textarea></div>`
+        +`<div class="field"><label for="deliveryLocation">建议交货地点</label><input id="deliveryLocation" name="deliveryLocation" maxlength="200" placeholder="如：北校区图书馆正门" value="${v('deliveryLocation')}"></div>`
+        +`<p class="muted">填写校内公共地点，具体交付时间与地点可由双方协商。</p>`
+        +`<div class="field"><label for="expectation">期望交换条件（交换必填）</label><input id="expectation" name="expectation" value="${v('expectation')}"></div>`
+        +`<div class="field"><label for="images">图片（重新选择会替换草稿里的图片）</label><input id="images" name="images" type="file" accept="image/png,image/jpeg" multiple></div>`
+        +`<button class="primary">提交审核</button></form></section>`;
+      watchUnsaved();
+    }
     if(page==='mine'){
       const ps=await api('/products/mine');
       html=heading('我的发布')+`<div class="grid">${ps.map(card).join('')||emptyState('还没有发布物品','整理书桌和宿舍，让闲置物品开启下一段使用旅程。')}</div>`
@@ -57,11 +82,88 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
   return html;
 }
 
-export async function publishProduct({$, api, files, toast, navigate}) {
-  await api('/products','POST',{
-    title:$('#title').value,category:$('#category').value,condition:$('#condition').value,description:$('#description').value,tradeType:$('#tradeType').value,price:Number($('#price').value),expectation:$('#expectation').value,deliveryLocation:$('#deliveryLocation').value,images:await files('#images')
+const payloadOf = $ => ({
+  title: $('#title').value.trim(),
+  category: $('#category').value.trim(),
+  condition: $('#condition').value.trim(),
+  description: $('#description').value.trim(),
+  tradeType: $('#tradeType').value,
+  price: $('#price').value,
+  expectation: $('#expectation').value.trim(),
+  deliveryLocation: $('#deliveryLocation').value.trim()
+});
+
+const REQUIRED = [['title', '标题'], ['category', '分类'], ['condition', '成色'], ['description', '描述'], ['deliveryLocation', '建议交货地点']];
+const CLEARABLE = ['title', 'category', 'condition', 'description', 'deliveryLocation', 'price', 'expectation'];
+
+function clearInvalid($) { for (const key of CLEARABLE) $('#'.concat(key)).classList.remove('invalid'); }
+function markInvalid($, key, message) {
+  const input = $('#' + key);
+  input.classList.add('invalid');
+  input.focus();
+  input.scrollIntoView({ block: 'center' });
+  return message;
+}
+
+let unsaved = false;
+function watchUnsaved() {
+  unsaved = false;
+  const form = document.querySelector('#publishform');
+  if (!form) return;
+  form.addEventListener('input', () => { unsaved = true; });
+  form.addEventListener('submit', () => { unsaved = false; });
+  if (!window.__ccUnsaved) {
+    window.__ccUnsaved = true;
+    window.addEventListener('beforeunload', ev => {
+      if (!unsaved) return;
+      ev.preventDefault();
+      ev.returnValue = '发布内容还没有保存为草稿，确定离开吗？';
+      return ev.returnValue;
+    });
   }
-  );
+}
+
+export async function saveDraft({ $, api, files, toast, silent = false }) {
+  const payload = payloadOf($);
+  const picked = document.querySelector('#images').files.length ? await files('#images') : null;
+  if (picked) payload.images = picked;
+  const saved = await api('/products/draft', 'PUT', payload);
+  const hidden = $('#draftId');
+  if (hidden) hidden.value = saved.id;
+  const form = document.querySelector('#publishform');
+  if (form) form.dataset.draftId = String(saved.id);
+  unsaved = false;
+  if (!silent) toast('草稿已保存，下次进来还能接着写');
+  return saved.id;
+}
+
+export async function publishProduct({ $, api, files, toast, navigate }) {
+  const payload = payloadOf($);
+  clearInvalid($);
+  const missing = REQUIRED.find(([key]) => !payload[key]);
+  if (missing) {
+    toast(markInvalid($, missing[0], missing[1] + '不能为空'));
+    return;
+  }
+  if (payload.tradeType === 'exchange' && !payload.expectation) {
+    toast(markInvalid($, 'expectation', '以物易物需要写清期望条件'));
+    return;
+  }
+  if (payload.tradeType === 'sale' && !(Number(payload.price) > 0)) {
+    toast(markInvalid($, 'price', '出售价格须大于 0'));
+    return;
+  }
+  const draftId = $('#draftId').value;
+  const picked = document.querySelector('#images').files.length ? await files('#images') : null;
+  if (!draftId && !picked) {
+    toast(markInvalid($, 'images', '请至少上传一张图片'));
+    return;
+  }
+  const body = { ...payload, draftId: draftId || undefined };
+  if (picked) body.images = picked;
+  await api('/products', 'POST', body);
+  if (draftId) await api('/products/draft', 'DELETE').catch(() => {});
+  unsaved = false;
   toast('物品已提交审核');
   await navigate('mine');
 }

@@ -1,8 +1,9 @@
 // 市场页筛选状态：跨渲染保留，重置时回到默认列表。
-const filters = {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: ''};
-const active = () => Object.entries(filters).filter(([, v]) => v !== '');
+const DEFAULT_SORT = 'latest';
+const filters = {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: '', sort: DEFAULT_SORT};
+const active = () => Object.entries(filters).filter(([k, v]) => v !== '' && !(k === 'sort' && v === DEFAULT_SORT));
 export function resetFilters() {
-  Object.assign(filters, {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: ''});
+  Object.assign(filters, {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: '', sort: DEFAULT_SORT});
 }
 export async function applyFilters({$, navigate}) {
   const form = $('#filterform');
@@ -13,6 +14,7 @@ export async function applyFilters({$, navigate}) {
   filters.condition = form.elements.condition.value;
   filters.minPrice = form.elements.minPrice.value.trim();
   filters.maxPrice = form.elements.maxPrice.value.trim();
+  filters.sort = form.elements.sort.value;
   return navigate('market');
 }
 const options = (values, current) => ['<option value="">全部</option>'].concat(values.map(v => `<option value="${escapeAttr(v)}"${v === current ? ' selected' : ''}>${escapeAttr(v)}</option>`)).join('');
@@ -24,6 +26,7 @@ function filterBar(facets) {
 <div class="field"><label for="tradeType">交易方式</label><select id="tradeType" name="tradeType">${['<option value="">全部</option>', `<option value="sale"${filters.tradeType === 'sale' ? ' selected' : ''}>出售</option>`, `<option value="gift"${filters.tradeType === 'gift' ? ' selected' : ''}>免费转让</option>`, `<option value="exchange"${filters.tradeType === 'exchange' ? ' selected' : ''}>以物易物</option>`].join('')}</select></div>
 <div class="field"><label for="condition">成色</label><select id="condition" name="condition">${options(facets.conditions, filters.condition)}</select></div>
 <div class="field price-range"><label for="minPrice">价格区间（元）</label><div class="range-inputs"><input id="minPrice" name="minPrice" type="number" min="0" max="99999.99" step="0.01" value="${escapeAttr(filters.minPrice)}" placeholder="最低" aria-label="最低价"><span aria-hidden="true">～</span><input id="maxPrice" name="maxPrice" type="number" min="0" max="99999.99" step="0.01" value="${escapeAttr(filters.maxPrice)}" placeholder="最高" aria-label="最高价"></div></div>
+<div class="field sort-field"><label for="sort">排序</label><select id="sort" name="sort">${[['latest', '最新发布'], ['oldest', '最早发布'], ['price_asc', '价格从低到高'], ['price_desc', '价格从高到低']].map(([v, t]) => `<option value="${v}"${filters.sort === v ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
 <div class="filter-actions"><button class="primary">筛选</button><button type="button" data-action="reset-filters">重置</button></div>
 </form>`;
 }

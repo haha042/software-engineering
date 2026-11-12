@@ -17,6 +17,16 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       const condition = (url.searchParams.get('condition') || '').trim();
       const tradeType = (url.searchParams.get('tradeType') || '').trim();
       if (tradeType && !TRADE_TYPES.includes(tradeType)) fail(400, '交易方式须为出售、免费转让或以物易物');
+      // 排序：默认按最新发布。价格排序时交换单没有价格，统一排在最后；
+      // 同值一律用 id 兜底，保证同价商品的先后顺序稳定、翻页不抖动。
+      const sort = (url.searchParams.get('sort') || 'latest').trim();
+      const SORTS = {
+        latest: 'p.id DESC',
+        oldest: 'p.id ASC',
+        price_asc: 'CASE WHEN p.price IS NULL THEN 1 ELSE 0 END, p.price ASC, p.id DESC',
+        price_desc: 'CASE WHEN p.price IS NULL THEN 1 ELSE 0 END, p.price DESC, p.id DESC'
+      };
+      if (!SORTS[sort]) fail(400, '排序方式须为最新发布、最早发布、价格从低到高或价格从高到低');
       const min = priceCents(url.searchParams.get('minPrice'), '最低价');
       const max = priceCents(url.searchParams.get('maxPrice'), '最高价');
       if (min !== null && max !== null && min > max) fail(400, '最低价不能高于最高价');
@@ -31,7 +41,7 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       // 交换单价格为空，价格区间只对出售与赠送生效。
       if (min !== null) { where.push('p.price IS NOT NULL AND p.price>=?'); params.push(min); }
       if (max !== null) { where.push('p.price IS NOT NULL AND p.price<=?'); params.push(max); }
-      const rows = db.prepare(`SELECT p.*,u.username owner_name FROM products p JOIN users u ON u.id=p.owner_id WHERE ${where.join(' AND ')} ORDER BY p.id DESC`).all(...params);
+      const rows = db.prepare(`SELECT p.*,u.username owner_name FROM products p JOIN users u ON u.id=p.owner_id WHERE ${where.join(' AND ')} ORDER BY ${SORTS[sort]}`).all(...params);
       return send(200, rows.map(publicProduct));
     }
     if (path === '/api/products/facets' && method === 'GET') {

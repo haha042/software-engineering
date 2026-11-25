@@ -19,9 +19,32 @@ function images(value){if(!Array.isArray(value)||value.length<1||value.length>6)
 export function createApp({database='data/campus.sqlite',adminPassword,clock=Date.now}={}){
  const db=openDatabase(database);const now=()=>clock();
  if(!db.prepare("SELECT id FROM users WHERE role='admin'").get()){if(!adminPassword||adminPassword.length<12)throw new Error('首次启动须设置至少12字符ADMIN_PASSWORD');db.prepare("INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,'admin',?)").run('admin',passwordHash(adminPassword),now());}
- const tx=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();db.exec('COMMIT');return result}catch(e){db.exec('ROLLBACK');throw e}};
+ const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();db.exec('COMMIT');return result}catch(e){db.exec('ROLLBACK');throw e}};
  const audit=(u,action,target,detail='')=>db.prepare('INSERT INTO audit(actor_id,action,target,detail,created_at) VALUES(?,?,?,?,?)').run(u,action,String(target),detail,now());
- const notice=(u,m)=>db.prepare('INSERT INTO notifications(user_id,message,created_at) VALUES(?,?,?)').run(u,m,now());
+ const notice=(userId,eventKey,message)=>db.prepare(`
+  INSERT INTO notification_outbox(user_id,event_key,message,created_at) VALUES(?,?,?,?)
+  ON CONFLICT(user_id,event_key) DO NOTHING
+ `).run(userId,eventKey,message,now());
+ function flushNotifications(){
+  try{
+   transaction(()=>{
+    const pending=db.prepare('SELECT * FROM notification_outbox WHERE delivered_at IS NULL ORDER BY created_at,event_key,user_id').all();
+    const deliver=db.prepare('INSERT INTO notifications(user_id,message,created_at) VALUES(?,?,?)');
+    const mark=db.prepare('UPDATE notification_outbox SET delivered_at=? WHERE user_id=? AND event_key=?');
+    for(const item of pending){
+     deliver.run(item.user_id,item.message,item.created_at);
+     mark.run(now(),item.user_id,item.event_key);
+    }
+   });
+  }catch(error){
+   console.error('notification delivery failed; will retry',error.message);
+  }
+ }
+ const tx=fn=>{
+  const result=transaction(fn);
+  flushNotifications();
+  return result;
+ };
  const quota=u=>db.prepare("SELECT COUNT(*) n FROM products WHERE owner_id=? AND status IN ('pending','live')").get(u).n;
  async function body(req){
   const chunks=[];let size=0;
@@ -53,5 +76,6 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   }
   fail(404,'接口不存在');
  }catch(e){if(e instanceof Failure)return send(e.status,{error:e.message});console.error(e);send(500,{error:'服务异常，操作未完成'})}});
+ flushNotifications();
  const interval=setInterval(()=>{try{expire()}catch(e){console.error('timeout job failed',e)}},60000);interval.unref();server.on('close',()=>{clearInterval(interval);db.close()});return {server,db,expire};
 }

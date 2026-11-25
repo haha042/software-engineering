@@ -1,7 +1,15 @@
+import {summarize} from './statistics.js';
+
 export function createAdminRoutes({db, now, auth, body, fail, text, tx, audit, notice, publicProduct}) {
   return async function handleAdminRequest(req, url, send) {
     const path = url.pathname;
     const method = req.method;
+    if(path==='/api/admin/statistics'&&method==='GET'){
+      auth(req,'admin');
+      const period=url.searchParams.get('period') ?? 'day';
+      if(!['day','week'].includes(period))fail(400,'统计周期须为日或周');
+      return send(200,summarize(db,now(),period));
+    }
     if(path==='/api/admin/users'&&method==='GET'){
      const actor=auth(req,'admin');
      const users=db.prepare(`SELECT u.id,u.username,u.role,u.certified,u.nickname,u.bio,u.created_at,u.failed_attempts,u.locked_until,

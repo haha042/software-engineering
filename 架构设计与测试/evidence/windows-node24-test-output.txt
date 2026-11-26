@@ -1,0 +1,62 @@
+(node:19028) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 管理员读取所有账号和认证历史，普通用户不可访问，凭据不外泄且读取留痕 (673.9244ms)
+(node:19652) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 管理员授权、撤销、账号恢复与审计查询 (2007.4637ms)
+(node:2388) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+notification delivery failed; will retry simulated delivery failure
+✔ HTTP业务闭环、权限、认证唯一性、锁定、取消及超时 (2813.4851ms)
+(node:3060) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ D05 每日备份保留七份，独立恢复核对订单和历史 (1131.8309ms)
+ℹ 独立副本恢复 52.20 毫秒，模拟恢复点间隔 24 小时，丢失 1 条备份后写入。
+(node:1104) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 分类维护：公开只读、管理员增改停用、未认证不可维护 (918.1915ms)
+✔ 历史商品分类迁移：按旧文本建分类并回填 category_id，且可重复启动 (464.129ms)
+(node:21292) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ C03 草稿：可保存、可恢复、不占配额、不出现在公开列表，提交后转待审核 (1331.5128ms)
+(node:22572) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ C06 收藏：认证后才可用，倒序展示，重复收藏幂等，上限 100，失效商品仍展示 (1834.817ms)
+(node:17392) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ C01 市场筛选：关键词、分类、方式、成色、价格区间可组合，空结果与非法参数有明确响应 (1099.8902ms)
+(node:29536) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ JSON异常请求返回400，不修改账号资料或触发登录锁定 (942.046ms)
+(node:16352) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 私信双方可见、认证权限、未读、幂等与历史分页 (1690.2793ms)
+(node:27420) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ C04 编辑与驳回重提：驳回可重提、在售改动重新审核、预订中受限、订单快照不变 (1541.3406ms)
+(node:30032) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ C05 下架与重新上架：只有本人可操作，预订中被拒，公开列表随状态变化 (1661.8198ms)
+(node:18088) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 发布商品：只接受启用中的 categoryId，文本分类与停用分类被拒绝 (947.7741ms)
+(node:23940) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 后台举报处置：权限、依据必填、结果通知与记录保留 (826.9935ms)
+(node:26968) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 举报提交与追加证据：合并、越权与已处理约束 (1247.2973ms)
+(node:21004) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 账号处置：7 天限制、30 天封禁、到期恢复与存量履约 (1256.5247ms)
+(node:27168) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ C02 市场排序：四种排序与筛选可组合，同价顺序稳定 (756.2491ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4885.4569

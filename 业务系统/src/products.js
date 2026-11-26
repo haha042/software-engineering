@@ -19,14 +19,14 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       if (tradeType && !TRADE_TYPES.includes(tradeType)) fail(400, '交易方式须为出售、免费转让或以物易物');
       // 排序：默认按最新发布。价格排序时交换单没有价格，统一排在最后；
       // 同值一律用 id 兜底，保证同价商品的先后顺序稳定、翻页不抖动。
-      const sort = (url.searchParams.get('sort') || 'latest').trim();
+      const sort = (url.searchParams.get('sort') || '').trim() || 'latest';
       const SORTS = {
-        latest: 'p.id DESC',
-        oldest: 'p.id ASC',
+        latest: 'p.created_at DESC, p.id DESC',
+        oldest: 'p.created_at ASC, p.id ASC',
         price_asc: 'CASE WHEN p.price IS NULL THEN 1 ELSE 0 END, p.price ASC, p.id DESC',
         price_desc: 'CASE WHEN p.price IS NULL THEN 1 ELSE 0 END, p.price DESC, p.id DESC'
       };
-      if (!SORTS[sort]) fail(400, '排序方式须为最新发布、最早发布、价格从低到高或价格从高到低');
+      if (!Object.hasOwn(SORTS, sort)) fail(400, '排序方式须为最新发布、最早发布、价格从低到高或价格从高到低');
       const min = priceCents(url.searchParams.get('minPrice'), '最低价');
       const max = priceCents(url.searchParams.get('maxPrice'), '最高价');
       if (min !== null && max !== null && min > max) fail(400, '最低价不能高于最高价');

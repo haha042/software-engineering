@@ -28,6 +28,7 @@ test('C02 市场排序：四种排序与筛选可组合，同价顺序稳定', a
     await req(admin, '/admin/products/' + b.id, 'POST', {action: 'approve'});
     return b.id;
   };
+  const savedDraft = await req(seller, '/products/draft', 'PUT', {title: '早存晚发的教材'});
   // 序号即发布顺序：A..G；F 与 G 同价（50 元），用于验证同值顺序稳定
   const A = await publish('数据结构教材', '书籍教材', '九成新', 'sale', 30);
   const B = await publish('宿舍台灯', '生活用品', '八成新', 'sale', 45);
@@ -53,4 +54,18 @@ test('C02 市场排序：四种排序与筛选可组合，同价顺序稳定', a
   // 非法排序值
   await req(seller, '/products?sort=hot', 'GET', undefined, 400);
   await req(seller, '/products?sort=', 'GET', undefined, 200);
+  await req(seller, '/products?sort=%20', 'GET', undefined, 200);
+
+  // 草稿先取得 ID，正式提交时间却晚于其余商品。
+  time += 1000;
+  const submitted = await req(seller, '/products', 'POST', {
+    title: '早存晚发的教材', category: '书籍教材', condition: '九成新',
+    tradeType: 'sale', price: 20, description: '草稿转发布',
+    deliveryLocation: '图书馆正门', images: [png], draftId: savedDraft.id
+  }, 201);
+  assert.equal(submitted.id, savedDraft.id);
+  assert.ok(submitted.id < A);
+  await req(admin, '/admin/products/' + submitted.id, 'POST', {action: 'approve'});
+  assert.deepEqual(await list(''), [submitted.id, G, F, E, D, C, B, A]);
+  assert.deepEqual(await list('?sort=oldest'), [A, B, C, D, E, F, G, submitted.id]);
 });

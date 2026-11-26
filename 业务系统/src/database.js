@@ -34,4 +34,8 @@ if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_l
 }
 const userColumns=db.prepare('PRAGMA table_info(users)').all();
 for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
+// B02：商品内容版本，新建为 v1；编辑/重提由 products.js 递增，审核只改状态。
+if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='version')){
+ db.exec('ALTER TABLE products ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+}
 return db;}

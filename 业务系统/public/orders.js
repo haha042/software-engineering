@@ -63,10 +63,8 @@ export async function placeOrder({$, api, files, toast, navigate, user, selected
   if(!user){
     return navigate('auth');
   }
-  const data={
-    productId:selected,requestKey:crypto.randomUUID()
-  }
-  ;
+  const data={productId:selected,requestKey:crypto.randomUUID()};
+  try{const detail=await api('/products/'+selected);if(Number.isInteger(detail.version))data.productVersion=detail.version}catch{}
   if($('#offerform')){
     if(!$('#offerform').reportValidity())return;
     data.offer={

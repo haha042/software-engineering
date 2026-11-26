@@ -8,6 +8,7 @@ import {createAdminRoutes} from './admin.js';
 import {createOrderRoutes} from './orders.js';
 import {createConversationRoutes} from './conversations.js';
 import {createGrantRoutes} from './grants.js';
+import {createSanctionRoutes} from './sanctions.js';
 import {openDatabase} from './database.js';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(p,salt,64).toString('hex')}`;}
@@ -32,8 +33,10 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   if(data===null||typeof data!=='object'||Array.isArray(data))fail(400,'请求内容必须为JSON对象');
   return data;
  }
- const session=req=>{const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('campus_session='));if(!cookie)return null;return db.prepare('SELECT s.csrf,s.token_hash,u.id,u.username,u.role,u.certified,u.avatar FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(cookie.slice(15)),now())};
- function auth(req,role){const u=session(req);if(!u)fail(401,'请先登录');if(role==='admin'&&u.role!=='admin')fail(403,'需要管理员权限');if(role==='student'&&(u.role!=='student'||!u.certified))fail(403,'需要已认证学生身份');if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==u.csrf)fail(403,'请求校验失败，请刷新登录');return u}
+ const session=req=>{const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('campus_session='));if(!cookie)return null;return db.prepare('SELECT s.csrf,s.token_hash,u.id,u.username,u.role,u.certified,u.avatar,u.status,u.limited_until,u.banned_until,u.status_reason FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(cookie.slice(15)),now())};
+ // 处置状态按到期时间惰性恢复：查到已过期就顺手清掉，避免后台定时任务成为唯一恢复路径。
+ function accountState(u){const t=now();if(u.status==='banned'&&u.banned_until>t)return 'banned';if(u.status==='limited'&&u.limited_until>t)return 'limited';if(u.status!=='normal'){db.prepare("UPDATE users SET status='normal',limited_until=0,banned_until=0 WHERE id=?").run(u.id);u.status='normal'}return 'normal'}
+ function auth(req,role){const u=session(req);if(!u)fail(401,'请先登录');const state=accountState(u);if(state==='banned'){db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);fail(403,'账号已被封禁，无法登录使用')}if(role==='admin'&&u.role!=='admin')fail(403,'需要管理员权限');if(role==='member'&&!u.certified)fail(403,'需要已认证学生身份');if(role==='student'){if(u.role!=='student'||!u.certified)fail(403,'需要已认证学生身份');if(state==='limited')fail(403,'账号处于限制期，暂停新增交易')}if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==u.csrf)fail(403,'请求校验失败，请刷新登录');return u}
  const publicProduct=p=>({...p,images:db.prepare('SELECT id FROM product_images WHERE product_id=?').all(p.id).map(x=>`/api/images/${x.id}`)});
  const shared = {db, now, auth, body, fail, text};
  const {handleOrderRequest, expire} = createOrderRoutes({...shared, images, amount, tx, quota, notice});
@@ -43,6 +46,7 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   createProductRoutes({...shared, session, images, amount, tx, quota, publicProduct}),
   createAdminRoutes({...shared, tx, audit, notice, publicProduct}),
   createGrantRoutes({...shared, tx, audit, notice}),
+  createSanctionRoutes({...shared, tx, audit, notice}),
   handleOrderRequest,
  ];
  const server=createServer(async(req,res)=>{const send=(status,data,headers={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data))};try{

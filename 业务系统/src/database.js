@@ -46,10 +46,14 @@ if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_l
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='category_id')){
  db.exec('ALTER TABLE products ADD COLUMN category_id INTEGER');
 }
-db.exec(`INSERT OR IGNORE INTO categories(name,status,sort,created_at)
- SELECT DISTINCT category,'active',0,${Date.now()} FROM products WHERE category_id IS NULL AND status<>'draft' AND TRIM(category)<>'';
- UPDATE products SET category_id=(SELECT id FROM categories c WHERE c.name=products.category)
- WHERE category_id IS NULL AND status<>'draft' AND TRIM(category)<>'';`);
+// 历史分类回填只执行一次：user_version 记录迁移进度，避免改名后重启又从旧文本补建出旧名。
+if(db.prepare('PRAGMA user_version').get().user_version<1){
+ db.exec(`INSERT OR IGNORE INTO categories(name,status,sort,created_at)
+  SELECT DISTINCT category,'active',0,${Date.now()} FROM products WHERE category_id IS NULL AND status<>'draft' AND TRIM(category)<>'';
+  UPDATE products SET category_id=(SELECT id FROM categories c WHERE c.name=products.category)
+  WHERE category_id IS NULL AND status<>'draft' AND TRIM(category)<>'';
+  PRAGMA user_version=1;`);
+}
 const userColumns=db.prepare('PRAGMA table_info(users)').all();
 for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
 // 账号处置：normal / limited（7 天内禁止新增交易）/ banned（30 天禁止登录）；两个到期时间用于惰性恢复。

@@ -1,6 +1,6 @@
 import {createMessages} from './messages.js';
 import {renderAccountPage, createAccountActions} from './accounts.js';
-import {renderAdminPage, filterAccounts, reviewItem, grantAction, unlockAccount, applyAuditFilter, resetAuditFilter, saveCategory, categoryAction} from './admin.js';
+import {renderAdminPage, filterAccounts, reviewItem, grantAction, unlockAccount, resetPassword, applyAuditFilter, resetAuditFilter, saveCategory, categoryAction} from './admin.js';
 import {renderOrderPage, placeOrder, readNotification, updateOrder} from './orders.js';
 import {renderProductPage, publishProduct, saveDraft, saveProductEdit, changeProductState, toggleFavorite, applyFilters, resetFilters} from './products.js';
 
@@ -254,6 +254,7 @@ document.addEventListener('click',async ev=>{
     if (b.dataset.cat) return await categoryAction(b.dataset.cat, adminActions);
     if (b.dataset.grant) return await grantAction(b.dataset.grant, adminActions);
     if (b.dataset.unlock) return await unlockAccount(b.dataset.unlock, adminActions);
+    if (b.dataset.pwd) return await resetPassword(b.dataset.pwd, adminActions);
     if ('auditReset' in b.dataset) return await resetAuditFilter(adminActions);
     if (b.dataset.read) return await readNotification(b.dataset.read, orderActions);
     if (b.dataset.order) return await updateOrder(b.dataset.order, orderActions);

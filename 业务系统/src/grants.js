@@ -7,7 +7,7 @@ CREATE INDEX IF NOT EXISTS grant_by_user ON admin_grants(user_id,granted_at);
 `);
 }
 
-export function createGrantRoutes({ db, now, auth, body, fail, text, tx, audit, notice }) {
+export function createGrantRoutes({ db, now, auth, body, fail, text, tx, audit, notice, passwordHash }) {
   ensureSchema(db);
   const adminCount = () => db.prepare("SELECT COUNT(*) n FROM users WHERE role='admin'").get().n;
   const findUser = id => db.prepare('SELECT id,username,role,failed_attempts,locked_until FROM users WHERE id=?').get(id);
@@ -45,6 +45,26 @@ export function createGrantRoutes({ db, now, auth, body, fail, text, tx, audit, 
         notice(user.id, 'account:'+event, '你的管理员权限已被撤销');
       });
       return send(200, { id: user.id, role: 'student' });
+    }
+
+    // 核验后重置密码：管理员线下确认身份后设置新密码，并让该账号已有会话立即失效。
+    const resetPassword = path.match(/^\/api\/admin\/users\/(\d+)\/password$/);
+    if (resetPassword && method === 'POST') {
+      const actor = auth(req, 'admin');
+      const b = await body(req);
+      const reason = text(b.reason, 5, 200);
+      const password = text(b.password, 8, 128);
+      if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) fail(400, '密码须包含字母和数字');
+      const user = findUser(Number(resetPassword[1]));
+      if (!user) fail(404, '账号不存在');
+      const revoked = db.prepare('SELECT COUNT(*) n FROM sessions WHERE user_id=?').get(user.id).n;
+      tx(() => {
+        db.prepare('UPDATE users SET password_hash=?,failed_attempts=0,locked_until=0 WHERE id=?').run(passwordHash(password), user.id);
+        db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
+        const event = audit(actor.id, 'reset_password', user.id, reason).lastInsertRowid;
+        notice(user.id, 'account:' + event, '管理员已核验身份并重置了你的登录密码，请用新密码重新登录');
+      });
+      return send(200, { id: user.id, sessionsRevoked: revoked });
     }
 
     // 账号恢复：解除因连续登录失败产生的锁定，保留原因与操作人。

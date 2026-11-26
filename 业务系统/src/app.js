@@ -11,6 +11,7 @@ import {createConversationRoutes} from './conversations.js';
 import {createGrantRoutes} from './grants.js';
 import {createSanctionRoutes} from './sanctions.js';
 import {createReportRoutes} from './reports.js';
+import {createAdminConversationRoutes} from './admin-conversations.js';
 import {openDatabase} from './database.js';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(p,salt,64).toString('hex')}`;}
@@ -71,7 +72,8 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   createProductRoutes({...shared, session, images, amount, tx, quota, publicProduct}),
   createCategoryRoutes({...shared, tx, audit}),
   createAdminRoutes({...shared, tx, audit, notice, publicProduct}),
-  createGrantRoutes({...shared, tx, audit, notice}),
+  createGrantRoutes({...shared, tx, audit, notice, passwordHash}),
+  createAdminConversationRoutes({...shared, audit}),
   createSanctionRoutes({...shared, tx, audit, notice}),
   createReportRoutes({...shared, tx, audit, notice}),
   handleOrderRequest,

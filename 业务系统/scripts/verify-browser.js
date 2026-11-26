@@ -71,7 +71,69 @@ try{
    await call('Page.navigate',{url:'about:blank'});
    await until("location.href==='about:blank'");
  }
- console.log(JSON.stringify({browser:version.Browser,results},null,2));
+ const adminHash=db.prepare("SELECT password_hash FROM users WHERE id=1").get().password_hash;
+ const insertUser=db.prepare("INSERT INTO users(username,password_hash,certified,created_at) VALUES(?,?,1,?)");
+ const seller=Number(insertUser.run('browserseller',adminHash,Date.now()).lastInsertRowid);
+ const buyer=Number(insertUser.run('browserbuyer',adminHash,Date.now()).lastInsertRowid);
+ const insertProduct=db.prepare(`INSERT INTO products(owner_id,title,category,condition_text,description,trade_type,price,status,created_at)
+   VALUES(?,?,'生活用品','九成新','演示数据',?,?,'live',?)`);
+ const sale=Number(insertProduct.run(seller,'版本回归商品','sale',1000,Date.now()).lastInsertRowid);
+ const exchange=Number(insertProduct.run(seller,'交换回归商品','exchange',null,Date.now()).lastInsertRowid);
+ const count=()=>db.prepare('SELECT count(*) n FROM orders WHERE buyer_id=?').get(buyer).n;
+ await call('Network.clearBrowserCookies');
+ await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,mobile:false,deviceScaleFactor:1});
+ await call('Page.navigate',{url:base+'/#auth'});
+ await until("document.querySelector('#authform')");
+ await js("const form=document.querySelector('#authform');form.elements.username.value='browserbuyer';form.elements.password.value='DemoPassword123!';form.requestSubmit()");
+ await until("document.querySelector('#account').innerText.includes('browserbuyer')");
+ await js(`location.hash='detail/${sale}'`);
+ await until("document.querySelector('[data-product-version=\"1\"]')");
+ db.prepare('UPDATE products SET price=2000,version=2 WHERE id=?').run(sale);
+ await js("document.querySelector('[data-action=buy]').click()");
+ await until("document.querySelector('[data-product-version=\"2\"]')");
+ assert.equal(count(),0);
+ await js("document.querySelector('[data-action=buy]').click()");
+ await until("document.querySelector('[data-order-detail]')");
+ assert.equal(count(),1);
+ const recorded=db.prepare('SELECT snapshot FROM orders WHERE product_id=?').get(sale);
+ assert.equal(JSON.parse(recorded.snapshot).price,2000);
+
+ await js(`location.hash='detail/${exchange}'`);
+ await until("document.querySelector('#offerform')");
+ await js(`(() => {
+   const originalSet=Storage.prototype.setItem;
+   Storage.prototype.setItem=function(key,value){
+     if(key.startsWith('campus.orderIntent.'))throw new DOMException('forced quota','QuotaExceededError');
+     return originalSet.call(this,key,value);
+   };
+   const originalFetch=window.fetch;
+   window.fetch=async (url,options)=>{
+     const response=await originalFetch(url,options);
+     if(url==='/api/orders'&&options?.method==='POST'&&response.ok)throw new TypeError('simulated lost response');
+     return response;
+   };
+   document.querySelector('#offerTitle').value='交换教材';
+   document.querySelector('#offerCondition').value='九成新';
+   document.querySelector('#offerDescription').value='演示图片随原请求重试';
+   const transfer=new DataTransfer();
+   const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='),c=>c.charCodeAt(0));
+   transfer.items.add(new File([png],'fixture.png',{type:'image/png'}));
+   document.querySelector('#offerImages').files=transfer.files;
+   const buy=document.querySelector('[data-action=buy]');
+   buy.click();buy.click();
+ })()`);
+ await until("document.querySelector('.form-error')?.innerText.includes('网络连接失败')");
+ assert.equal(count(),2);
+ const original=db.prepare('SELECT id,request_key,offer FROM orders WHERE product_id=?').get(exchange);
+ assert.equal(JSON.parse(original.offer).images.length,1);
+ await call('Page.reload');
+ await until("document.querySelector('[data-action=buy]')?.textContent.includes('重试下单')");
+ await js("document.querySelector('[data-action=buy]').click()");
+ await until("document.querySelectorAll('[data-order-detail]').length===2");
+ assert.equal(count(),2);
+ assert.deepEqual(db.prepare('SELECT id,request_key,offer FROM orders WHERE product_id=?').get(exchange),original);
+ const orderScenarios={staleVersion:true,retryAfterLostResponse:true,exchangeImageAfterReload:true,storageQuotaFallback:true};
+ console.log(JSON.stringify({browser:version.Browser,results,orderScenarios},null,2));
 }finally{
  ws?.close();
  chrome.kill();

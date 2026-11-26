@@ -59,15 +59,18 @@ test('B06 响应不确定时保留请求标识，明确业务拒绝时清除', a
 test('B06 快速重复点击只发送一次', async () => {
   const c=ctx({productId:2});
   let calls=0;
-  let finish;
+  let finish, markStarted;
+  const started=new Promise(resolve=>{markStarted=resolve});
   const response=new Promise(resolve=>{finish=resolve});
   c.args.api=()=>{
     calls++;
+    markStarted();
     assert.ok(c.store.getItem('campus.orderIntent.2.2'));
     return response;
   };
   const first=placeOrder(c.args);
   await placeOrder(c.args);
+  await started;
   assert.equal(calls,1);
   finish({id:1});
   await first;

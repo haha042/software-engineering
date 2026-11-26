@@ -9,6 +9,12 @@ const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"']/g,c=>({
 }
 [c]));
 let user=null,csrf='',page=location.hash.slice(1)||'market',selected=null,loading=false;
+
+function readDetailRoute() {
+  const match=/^detail\/(\d+)$/.exec(page);
+  if(match){selected=Number(match[1]);page='detail';}
+}
+readDetailRoute();
 const labels={
   pending:'待审核',approved:'通过',rejected:'驳回',live:'在售',reserved:'已预订',sold:'已成交',off:'已下架',delivery:'待交付',confirmation:'待双方确认',completed:'已完成',cancelled:'已取消',closed:'已关闭',sale:'出售',gift:'免费转让',exchange:'以物易物'
 }
@@ -248,6 +254,7 @@ document.addEventListener('click',async ev=>{
     if(b.dataset.detail){
       selected=+b.dataset.detail;
       page='detail';
+      history.replaceState(null,'','#detail/'+selected);
       return render()
     }
     if (b.dataset.review) return await reviewItem(b.dataset.review, adminActions);
@@ -280,6 +287,7 @@ document.addEventListener('click',async ev=>{
 );
 window.addEventListener('hashchange',()=>{
   page=location.hash.slice(1)||'market';
+  readDetailRoute();
   render()
 }
 );

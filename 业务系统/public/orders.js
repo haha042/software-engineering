@@ -111,12 +111,32 @@ export async function updateOrder(order, {api, toast, render}) {
 const activeOrders = new Set();
 const pendingOrders = new Map();
 
-export function pendingOrder(userId,productId) {
+function storedIntent(key, mode, operation) {
+  return new Promise((resolve,reject)=>{
+    const open=indexedDB.open('campus-order-intents',1);
+    open.onupgradeneeded=()=>open.result.createObjectStore('intents');
+    open.onerror=()=>reject(open.error);
+    open.onsuccess=()=>{
+      const db=open.result;
+      const tx=db.transaction('intents',mode);
+      const request=operation(tx.objectStore('intents'),key);
+      tx.oncomplete=()=>{db.close();resolve(request.result);};
+      tx.onabort=()=>{db.close();reject(tx.error);};
+    };
+  });
+}
+
+export async function pendingOrder(userId,productId) {
   const key = 'campus.orderIntent.' + userId + '.' + productId;
+  if (pendingOrders.has(key)) return pendingOrders.get(key);
   try {
-    return pendingOrders.get(key) ?? JSON.parse(sessionStorage.getItem(key) || 'null');
+    const value=JSON.parse(sessionStorage.getItem(key) || 'null');
+    if (value) return value;
+  } catch {}
+  try {
+    return await storedIntent(key,'readonly',(store,k)=>store.get(k));
   } catch {
-    return pendingOrders.get(key);
+    return undefined;
   }
 }
 
@@ -126,7 +146,7 @@ export async function placeOrder({$, api, files, toast, navigate, render, user, 
   if (activeOrders.has(storageKey)) return;
   activeOrders.add(storageKey);
   try {
-    let data = pendingOrder(user.id,selected);
+    let data = await pendingOrder(user.id,selected);
     if (!data) {
       if (!Number.isSafeInteger(productVersion) || productVersion < 1) {
         throw Error('请刷新商品详情后重新确认');
@@ -143,27 +163,34 @@ export async function placeOrder({$, api, files, toast, navigate, render, user, 
         data.topup = Number($('#topup').value);
         data.payer = $('#payer').value;
       }
-      pendingOrders.set(storageKey,data);
       try {
         sessionStorage.setItem(storageKey,JSON.stringify(data));
       } catch {
-        toast('无法保存跨刷新重试数据，请保持当前页面直到下单结果确认','error');
+        try {
+          await storedIntent(storageKey,'readwrite',(store,key)=>store.put(data,key));
+        } catch {
+          throw Error('无法保存下单重试数据，请允许浏览器存储或减少图片后重试');
+        }
       }
+      pendingOrders.set(storageKey,data);
     }
-    const clearIntent = ()=>{
+    const clearIntent = async ()=>{
       pendingOrders.delete(storageKey);
       try { sessionStorage.removeItem(storageKey); } catch {}
+      if (typeof indexedDB !== 'undefined') {
+        try { await storedIntent(storageKey,'readwrite',(store,key)=>store.delete(key)); } catch {}
+      }
     };
     try {
       await api('/orders','POST',data);
     } catch (error) {
       const definitive = error.status >= 400 && error.status < 500 && ![401,403,408,429].includes(error.status);
-      if (definitive) clearIntent();
+      if (definitive) await clearIntent();
       if (error.code === 'PRODUCT_VERSION_STALE') await render?.();
       if (!definitive) toast('下单结果未确认，再次提交会沿用原参数','error');
       throw error;
     }
-    clearIntent();
+    await clearIntent();
     toast('下单成功，目标已锁定');
     return navigate('orders');
   } finally {

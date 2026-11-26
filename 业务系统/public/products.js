@@ -54,6 +54,7 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
       const editing=page==='edit';
       const loaded=editing?(await api('/products/'+selected)):(await api('/products/draft').catch(()=>null)).draft||null;
       const d=loaded||null;
+      const cats=await api('/categories').catch(()=>[])||[];
       const values=d?toFormValues(d):null;
       html=heading(editing?'修改物品':'发布校园闲置',editing?'改完会重新进入审核，审核期间不会出现在市场列表。':'1～6张JPG/PNG，每张不超过5 MiB。草稿只有你自己可见，提交后才进入审核。')
         +`<section class="panel"><form id="${editing?'editform':'publishform'}" data-draft-id="${editing?'':(d?d.id:'')}">`
@@ -61,7 +62,7 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
         +(editing?'<p class="muted">当前状态：'+e(statusLabel(d&&d.status))+'。</p>':'')
         +`<div class="draft-bar"><span class="draft-hint">${editing?'修改标题、描述、价格、图片等都会重新审核':'已恢复上次保存的草稿，继续编辑后可以直接提交'}</span>`
         +(editing?'':'<button type="button" class="ghost" data-action="save-draft">保存草稿</button>')+'</div>'
-        +fieldsHtml(values,e,editing)
+        +fieldsHtml(values,e,editing,cats)
         +`<button class="primary">${editing?'保存并重新提交':'提交审核'}</button></form></section>`;
       if(!editing)watchUnsaved();
     }
@@ -95,14 +96,26 @@ function toFormValues(row) {
   };
 }
 
-function fieldsHtml(d, e, editing) {
+function categoryField(d, e, cats) {
+  const list = Array.isArray(cats) ? cats : [];
+  const current = d && (d.categoryId !== undefined ? d.categoryId : d.category_id);
+  const name = d && d.category;
+  const opts = list.map(c => {
+    const picked = String(c.id) === String(current) || (!current && name && c.name === name);
+    return `<option value="${e(String(c.id))}"${picked ? ' selected' : ''}>${e(c.name)}</option>`;
+  }).join('');
+  const placeholder = list.length ? '请选择分类' : '暂无可用分类，请联系管理员';
+  return `<div class="field"><label for="categoryId">分类</label><select id="categoryId" name="categoryId"${list.length ? '' : ' disabled'}><option value="">${placeholder}</option>${opts}</select></div>`;
+}
+
+function fieldsHtml(d, e, editing, cats) {
   const v = k => e(d && d[k] !== null && d[k] !== undefined ? String(d[k]) : '');
   const yuan = k => (d && d[k] !== null && d[k] !== undefined && d.tradeType !== 'exchange') ? String(Number(d[k]) / 100) : '';
   const sel = t => (d && d.tradeType === t) ? ' selected' : '';
   return ''
     + `<div class="field"><label for="title">标题</label><input id="title" name="title" maxlength="80" value="${v('title')}"></div>`
     + `<div class="formgrid">`
-    + `<div class="field"><label for="category">分类</label><input id="category" name="category" placeholder="如：书籍教材" value="${v('category')}"></div>`
+    + categoryField(d, e, cats)
     + `<div class="field"><label for="condition">成色</label><input id="condition" name="condition" placeholder="如：九成新" value="${v('condition')}"></div>`
     + `<div class="field"><label for="tradeType">交易方式</label><select id="tradeType"><option value="sale"${sel('sale')}>出售</option><option value="gift"${sel('gift')}>免费转让</option><option value="exchange"${sel('exchange')}>以物易物</option></select></div>`
     + `<div class="field"><label for="price">出售价格（元）</label><input id="price" name="price" type="number" min="0" max="99999.99" step="0.01" value="${yuan('price')}"></div>`
@@ -114,19 +127,24 @@ function fieldsHtml(d, e, editing) {
     + `<div class="field"><label for="images">图片${editing ? '（不选则保留原图）' : '（重新选择会替换草稿里的图片）'}</label><input id="images" name="images" type="file" accept="image/png,image/jpeg" multiple></div>`;
 }
 
-const payloadOf = $ => ({
-  title: $('#title').value.trim(),
-  category: $('#category').value.trim(),
-  condition: $('#condition').value.trim(),
-  description: $('#description').value.trim(),
-  tradeType: $('#tradeType').value,
-  price: $('#price').value,
-  expectation: $('#expectation').value.trim(),
-  deliveryLocation: $('#deliveryLocation').value.trim()
-});
+const payloadOf = $ => {
+  const pick = $('#categoryId');
+  const chosen = pick && pick.selectedIndex > 0 ? pick.options[pick.selectedIndex] : null;
+  return {
+    title: $('#title').value.trim(),
+    categoryId: pick ? pick.value : '',
+    category: chosen ? chosen.textContent.trim() : '',
+    condition: $('#condition').value.trim(),
+    description: $('#description').value.trim(),
+    tradeType: $('#tradeType').value,
+    price: $('#price').value,
+    expectation: $('#expectation').value.trim(),
+    deliveryLocation: $('#deliveryLocation').value.trim()
+  };
+};
 
-const REQUIRED = [['title', '标题'], ['category', '分类'], ['condition', '成色'], ['description', '描述'], ['deliveryLocation', '建议交货地点']];
-const CLEARABLE = ['title', 'category', 'condition', 'description', 'deliveryLocation', 'price', 'expectation'];
+const REQUIRED = [['title', '标题'], ['categoryId', '分类'], ['condition', '成色'], ['description', '描述'], ['deliveryLocation', '建议交货地点']];
+const CLEARABLE = ['title', 'categoryId', 'condition', 'description', 'deliveryLocation', 'price', 'expectation'];
 
 function clearInvalid($) { for (const key of CLEARABLE) $('#'.concat(key)).classList.remove('invalid'); }
 function markInvalid($, key, message) {

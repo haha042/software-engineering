@@ -8,6 +8,25 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
     if (!/^\d{1,5}(\.\d{1,2})?$/.test(value)) fail(400, `${name}须为0～99999.99的数字，最多两位小数`);
     return Math.round(Number(value) * 100);
   };
+  // 发布/编辑优先接受启用中的分类 id；过渡期为老客户端保留「按分类名」的兼容入口，
+  // 名字必须命中已存在的启用分类，任意文本仍然会被拒绝。
+  const resolveCategory = b => {
+    const raw = b.categoryId;
+    if (raw === undefined || raw === null || raw === '') {
+      const name = String(b.category === undefined || b.category === null ? '' : b.category).trim();
+      if (!name) fail(400, '请选择分类');
+      const legacy = db.prepare('SELECT id,name,status FROM categories WHERE name=? ORDER BY id LIMIT 1').get(name);
+      if (!legacy) fail(400, '分类不存在，请重新选择');
+      if (legacy.status !== 'active') fail(400, '分类已停用，请重新选择');
+      return legacy;
+    }
+    const id = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+    if (!Number.isSafeInteger(id) || id <= 0) fail(400, '分类不存在');
+    const row = db.prepare('SELECT id,name,status FROM categories WHERE id=?').get(id);
+    if (!row) fail(400, '分类不存在');
+    if (row.status !== 'active') fail(400, '分类已停用，请重新选择');
+    return row;
+  };
   return async function handleProductRequest(req, url, send, res) {
     const path = url.pathname;
     const method = req.method;
@@ -107,20 +126,21 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       const expectation = type === 'exchange' ? text(b.expectation) : '';
       const imgs = b.images === undefined ? null : images(b.images);
       const draftId = b.draftId ? Number(b.draftId) : null;
+      const category = resolveCategory(b);
       const id = tx(() => {
         const draft = draftId ? db.prepare("SELECT * FROM products WHERE id=? AND owner_id=? AND status='draft'").get(draftId, u.id) : null;
         if (draftId && !draft) fail(400, '草稿不存在或已提交');
         if (quota(u.id) >= 20) fail(409, '待审核及在售最多20件');
         const keepImages = draft && imgs === null;
         if (!draft && (!imgs || !imgs.length)) fail(400, '请至少上传一张图片');
-        const values = [text(b.title, 1, 80), text(b.category, 1, 40), text(b.condition, 1, 40), text(b.description), type, price, expectation, text(b.deliveryLocation, 1, 200), now()];
+        const values = [text(b.title, 1, 80), category.name, text(b.condition, 1, 40), text(b.description), type, price, expectation, text(b.deliveryLocation, 1, 200), now(), category.id];
         let productId;
         if (draft) {
-          db.prepare("UPDATE products SET title=?,category=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,created_at=?,status='pending',review_reason=NULL WHERE id=?")
+          db.prepare("UPDATE products SET title=?,category=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,created_at=?,category_id=?,status='pending',review_reason=NULL WHERE id=?")
             .run(...values, draft.id);
           productId = draft.id;
         } else {
-          const r = db.prepare('INSERT INTO products(owner_id,title,category,condition_text,description,trade_type,price,expectation,delivery_location,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(u.id, ...values);
+          const r = db.prepare('INSERT INTO products(owner_id,title,category,condition_text,description,trade_type,price,expectation,delivery_location,created_at,category_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(u.id, ...values);
           productId = Number(r.lastInsertRowid);
         }
         if (!keepImages) {
@@ -200,11 +220,12 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       if (type === 'sale' && price <= 0) fail(400, '出售价格须大于0');
       const expectation = type === 'exchange' ? text(b.expectation === undefined ? p.expectation : b.expectation) : '';
       const imgs = b.images === undefined ? null : images(b.images);
+      const category = b.categoryId === undefined ? null : resolveCategory(b);
       tx(() => {
-        // 内容变更即递增版本：旧页面持有的版本号随后在下单校验处被拒绝（B02 默认口径）。
-        db.prepare("UPDATE products SET title=?,category=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL,version=version+1 WHERE id=?")
+        db.prepare("UPDATE products SET title=?,category=?,category_id=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL,version=version+1 WHERE id=?")
           .run(text(b.title === undefined ? p.title : b.title, 1, 80),
-            text(b.category === undefined ? p.category : b.category, 1, 40),
+            category ? category.name : p.category,
+            category ? category.id : p.category_id,
             text(b.condition === undefined ? p.condition_text : b.condition, 1, 40),
             text(b.description === undefined ? p.description : b.description),
             type, price, expectation,

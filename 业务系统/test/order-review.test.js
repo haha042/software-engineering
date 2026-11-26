@@ -20,6 +20,9 @@ test('B07 订单评价与一次回复的期限、唯一性与权限', async t =>
   }
   await f.req(f.buyer, reviewPath(o.id), 'POST', {rating: 1, content: '   '}, 400);
 
+  await f.req(f.admin, '/admin/users/'+list[0].buyer_id+'/sanction', 'POST', {
+    action:'limit',reason:'验证受限期间仍可处理已有交易'
+  });
   const r1 = await f.req(f.buyer, reviewPath(o.id), 'POST', {rating: 1, content: '交付准时'}, 201);
   const r2 = await f.req(f.seller, reviewPath(o.id), 'POST', {rating: 5, content: '沟通顺畅'}, 201);
   await f.req(f.buyer, reviewPath(o.id), 'POST', {rating: 3, content: '改评价'}, 409, '每人每单一次');
@@ -43,6 +46,10 @@ test('B07 订单评价与一次回复的期限、唯一性与权限', async t =>
   await f.req(f.buyer, '/orders/' + o.id + '/reviews/' + r1.id, 'DELETE', undefined, 404);
   assert.equal((await f.req(f.buyer, '/orders'))[0].reviews.find(x => x.id === r1.id).rating, 1);
   assert.ok(r2.id > 0);
+  await f.req(f.buyer, '/orders/'+o.id+'/reviews/'+r2.id+'/reply', 'POST', {content:'谢谢认可'});
+  await f.req(f.admin, '/admin/users/'+list[0].buyer_id+'/sanction', 'POST', {
+    action:'lift',reason:'解除用于评价测试的限制'
+  });
 
   const pid2 = await f.publish({title: '期限测试台灯'});
   const o2 = await f.order(pid2, 'review-test-0002');

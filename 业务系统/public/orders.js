@@ -111,14 +111,22 @@ export async function updateOrder(order, {api, toast, render}) {
 const activeOrders = new Set();
 const pendingOrders = new Map();
 
+export function pendingOrder(userId,productId) {
+  const key = 'campus.orderIntent.' + userId + '.' + productId;
+  try {
+    return pendingOrders.get(key) ?? JSON.parse(sessionStorage.getItem(key) || 'null');
+  } catch {
+    return pendingOrders.get(key);
+  }
+}
+
 export async function placeOrder({$, api, files, toast, navigate, render, user, selected, productVersion}) {
   if (!user) return navigate('auth');
   const storageKey = 'campus.orderIntent.' + user.id + '.' + selected;
   if (activeOrders.has(storageKey)) return;
   activeOrders.add(storageKey);
   try {
-    let data = pendingOrders.get(storageKey);
-    try { data ??= JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch {}
+    let data = pendingOrder(user.id,selected);
     if (!data) {
       if (!Number.isSafeInteger(productVersion) || productVersion < 1) {
         throw Error('请刷新商品详情后重新确认');

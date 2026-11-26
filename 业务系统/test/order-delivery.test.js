@@ -27,8 +27,16 @@ test('B04 拒单理由与交换交付双方物品记录', async t => {
     offer: {title: '交换用教材', description: '内容完整', condition: '九成新', images: [png]},
     topup: 0
   }, 201);
+  const replay=await f.req(f.buyer,'/orders','POST',{
+    productId:exId, requestKey:'exchange-key-01', topup:0, payer:'buyer',
+    offer:{condition:'九成新', title:' 交换用教材 ', images:[png],description:'内容完整'}
+  },201);
+  assert.equal(replay.id,exOrder.id);
   await f.act(f.seller, exOrder.id, 'accept');
   const baseDelivery = {location: '图书馆正门', note: '当面交换', occurredAt: f.now()};
+  await f.act(f.seller, exOrder.id, 'deliver', {
+    ...baseDelivery,occurredAt:f.now()-1,items:{seller:{delivered:true},buyer:{delivered:true}}
+  },400);
   const partial = await f.act(f.seller, exOrder.id, 'deliver',
     {...baseDelivery, items: {seller: {delivered: true}}}, 400);
   assert.match(partial.error, /双方物品/);

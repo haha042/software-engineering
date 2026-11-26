@@ -1,24 +1,38 @@
 // 订单与履约模块。
 // 本文件的 B02～B07 行为采用「默认实现口径」，#12 商品版本/订单快照契约尚未经跨组人工确认，
 // 依据见 业务系统/docs/B02-B07_订单模块默认实现口径_待复核.md；不得据此宣称契约已冻结。
-export function createOrderRoutes({db, now, auth, body, fail, text, images, amount, tx, quota, notice, session}) {
+export function createOrderRoutes({db, now, auth, body, fail, text, images, amount, tx, quota, notice, session, accountState}) {
   const event = (o, u, action, detail = '') =>
     db.prepare('INSERT INTO events(order_id,actor_id,action,detail,created_at) VALUES(?,?,?,?,?)').run(o, u, action, detail, now());
   const release = p => {
     const product = db.prepare('SELECT * FROM products WHERE id=?').get(p);
+    if (product.status !== 'reserved') return;
     const owner = db.prepare('SELECT * FROM users WHERE id=?').get(product.owner_id);
-    db.prepare('UPDATE products SET status=? WHERE id=?').run(owner.certified && quota(owner.id) < 20 ? 'live' : 'off', p);
+    db.prepare('UPDATE products SET status=? WHERE id=?').run(owner.certified && accountState(owner)==='normal' && quota(owner.id) < 20 ? 'live' : 'off', p);
   };
-  function expire() {
-    tx(() => {
-      for (const o of db.prepare("SELECT * FROM orders WHERE status='pending' AND paused=0 AND deadline<=?").all(now())) {
-        db.prepare("UPDATE orders SET status='closed' WHERE id=?").run(o.id);
-        release(o.product_id);
-        event(o.id, null, 'timeout');
-        notice(o.buyer_id, '订单超时关闭');
-        notice(o.seller_id, '订单超时关闭');
+  const reminderDelay = 7 * 24 * 60 * 60 * 1000;
+  function expire(){
+    tx(()=>{
+      for(const order of db.prepare("SELECT * FROM orders WHERE status='pending' AND paused=0 AND deadline<=?").all(now())){
+        db.prepare("UPDATE orders SET status='closed' WHERE id=?").run(order.id);
+        release(order.product_id);
+        const timeout=event(order.id,null,'timeout').lastInsertRowid;
+        notice(order.buyer_id,'order:'+timeout,'订单超时关闭');
+        notice(order.seller_id,'order:'+timeout,'订单超时关闭');
+      }
+      const due=db.prepare(`
+        SELECT id,buyer_id,seller_id FROM orders
+        WHERE status='confirmation' AND paused=0
+          AND json_extract(delivery,'$.recordedAt')<=?
+      `).all(now()-reminderDelay);
+      for(const order of due){
+        const key='delivery-reminder:'+order.id;
+        const message='订单 #'+order.id+' 提交交付记录已满 7 天，仍待确认完成';
+        notice(order.buyer_id,key,message);
+        notice(order.seller_id,key,message);
       }
     });
+
   }
 
   const REVIEW_WINDOW = 14 * 24 * 60 * 60 * 1000;
@@ -46,6 +60,25 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
     };
   };
 
+  function orderTerms(b, tradeType) {
+    let offer = null, topup = 0, payer = null;
+    if (tradeType === 'exchange') {
+      offer = {
+        title: text(b.offer?.title, 1, 80),
+        description: text(b.offer?.description),
+        condition: text(b.offer?.condition, 1, 40),
+        images: images(b.offer?.images)
+      };
+      topup = amount(b.topup || 0);
+      payer = topup ? b.payer : null;
+      if (topup && !['buyer', 'seller'].includes(payer)) fail(400, '差价付款方向错误');
+    }
+    if (tradeType !== 'exchange' && (b.offer != null || b.payer != null || b.topup != null && b.topup !== 0)) {
+      fail(409, '非交换订单不能提交交换条件');
+    }
+    return {offer,topup,payer};
+  }
+
   async function handleOrderRequest(req, url, send, res) {
     const path = url.pathname;
     const method = req.method;
@@ -61,37 +94,32 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
       const id = tx(() => {
         const old = db.prepare('SELECT * FROM orders WHERE buyer_id=? AND request_key=?').get(u.id, key);
         if (old) {
-          const agreedVersion = JSON.parse(old.snapshot).version ?? 1;
+          const snapshot = JSON.parse(old.snapshot);
+          const agreedVersion = snapshot.version ?? 1;
+          const {offer,topup,payer} = orderTerms(b,snapshot.trade_type);
           if (old.product_id !== b.productId
-            || old.topup !== (b.topup === undefined ? 0 : amount(b.topup))
-            || JSON.stringify(b.offer || null) !== (old.offer || 'null')
-            || (b.payer || null) !== old.payer
-            || (b.productVersion !== undefined && b.productVersion !== agreedVersion)) fail(409, '请求标识已用于不同参数');
+            || old.topup !== topup
+            || JSON.stringify(offer) !== (old.offer || 'null')
+            || payer !== old.payer
+            || (b.productVersion !== undefined && b.productVersion !== agreedVersion)) {
+            fail(409, '请求标识已用于不同参数');
+          }
           return old.id;
         }
         const p = db.prepare('SELECT * FROM products WHERE id=?').get(b.productId);
         if (!p || p.status !== 'live') fail(409, '商品不可交易');
         if (p.owner_id === u.id) fail(403, '不能下单本人商品');
+        const owner = db.prepare('SELECT * FROM users WHERE id=?').get(p.owner_id);
+        if (accountState(owner) !== 'normal') fail(409, '卖家暂不可接受新订单');
         if (b.productVersion !== undefined && b.productVersion !== p.version) fail(409, '商品版本已更新，请刷新后重新确认', 'PRODUCT_VERSION_STALE');
-        let offer = null, topup = 0, payer = null;
-        if (p.trade_type === 'exchange') {
-          offer = {
-            title: text(b.offer?.title, 1, 80),
-            description: text(b.offer?.description),
-            condition: text(b.offer?.condition, 1, 40),
-            images: images(b.offer?.images)
-          };
-          topup = amount(b.topup || 0);
-          payer = topup ? b.payer : null;
-          if (topup && !['buyer', 'seller'].includes(payer)) fail(400, '差价付款方向错误');
-        }
+        const {offer,topup,payer} = orderTerms(b,p.trade_type);
         const r = db.prepare('INSERT INTO orders(product_id,buyer_id,seller_id,snapshot,offer,topup,payer,request_key,deadline,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
           .run(p.id, u.id, p.owner_id, JSON.stringify(p), offer ? JSON.stringify(offer) : null, topup, payer, key, now() + 172800000, now());
         const id = Number(r.lastInsertRowid);
         copyTargetImages(id);
         db.prepare("UPDATE products SET status='reserved' WHERE id=?").run(p.id);
-        event(id, u.id, 'create');
-        notice(p.owner_id, '有新订单等待确认');
+        const created = event(id, u.id, 'create').lastInsertRowid;
+        notice(p.owner_id, 'order:'+created, '有新订单等待确认');
         return id;
       });
       return send(201, { id });
@@ -99,7 +127,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
 
     let match = path.match(/^\/api\/orders\/(\d+)\/action$/);
     if (match && method === 'POST') {
-      const u = auth(req, 'student'), b = await body(req);
+      const u = auth(req, 'member'), b = await body(req);
       tx(() => {
         const o = db.prepare('SELECT * FROM orders WHERE id=?').get(+match[1]);
         if (!o || ![o.buyer_id, o.seller_id].includes(u.id)) fail(403, '不是订单参与者');
@@ -129,7 +157,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
           assert(o.status === 'delivery' && o.cancel_status === 'pending' && (action === 'withdraw_cancel' ? u.id === o.cancel_by : u.id !== o.cancel_by));
           const result = { withdraw_cancel: 'withdrawn', deny_cancel: 'denied', agree_cancel: 'agreed' }[action];
           const pending = db.prepare("SELECT id FROM cancel_requests WHERE order_id=? AND status='pending'").get(o.id);
-          if (pending && b.cancelRequestId !== pending.id || !pending && b.cancelRequestId !== undefined) {
+          if (b.cancelRequestId !== pending?.id) {
             fail(409, '取消申请已变化，请刷新订单');
           }
           db.prepare('UPDATE orders SET cancel_status=?,status=? WHERE id=?').run(result, action === 'agree_cancel' ? 'cancelled' : o.status, o.id);
@@ -163,8 +191,8 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
             db.prepare("UPDATE products SET status='sold' WHERE id=?").run(o.product_id);
           }
         } else fail(400, '不支持的动作');
-        event(o.id, u.id, action, b.reason || '');
-        notice(u.id === o.buyer_id ? o.seller_id : o.buyer_id, '订单状态更新：' + action);
+        const updated = event(o.id, u.id, action, b.reason || '').lastInsertRowid;
+        notice(u.id === o.buyer_id ? o.seller_id : o.buyer_id, 'order:'+updated, '订单状态更新：' + action);
       });
       return send(200, { ok: true });
     }
@@ -174,7 +202,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
     if (match && method === 'GET') {
       const img = db.prepare('SELECT i.data_url,o.buyer_id,o.seller_id FROM order_images i JOIN orders o ON o.id=i.order_id WHERE i.id=?').get(+match[1]);
       const u = session(req);
-      if (!img || !u || ![img.buyer_id, img.seller_id].includes(u.id)) fail(404, '图片不存在或不可见');
+      if (!img || !u || ![img.buyer_id, img.seller_id].includes(u.id) || accountState(u)==='banned') fail(404, '图片不存在或不可见');
       const [prefix, data] = img.data_url.split(',');
       res.writeHead(200, { 'Content-Type': prefix.includes('png') ? 'image/png' : 'image/jpeg', 'Cache-Control': 'private, no-store' });
       return res.end(Buffer.from(data, 'base64'));
@@ -183,7 +211,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
     // B07：完成后 14 天内，双方各评价一次；原评价不可改删。
     match = path.match(/^\/api\/orders\/(\d+)\/reviews$/);
     if (match && method === 'POST') {
-      const u = auth(req, 'student'), b = await body(req);
+      const u = auth(req, 'member'), b = await body(req);
       const id = tx(() => {
         const o = db.prepare('SELECT * FROM orders WHERE id=?').get(+match[1]);
         if (!o || ![o.buyer_id, o.seller_id].includes(u.id)) fail(403, '不是订单参与者');
@@ -201,7 +229,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
     }
     match = path.match(/^\/api\/orders\/(\d+)\/reviews\/(\d+)\/reply$/);
     if (match && method === 'POST') {
-      const u = auth(req, 'student'), b = await body(req);
+      const u = auth(req, 'member'), b = await body(req);
       const id = tx(() => {
         const review = db.prepare('SELECT * FROM reviews WHERE id=? AND order_id=?').get(+match[2], +match[1]);
         if (!review) fail(404, '评价不存在');

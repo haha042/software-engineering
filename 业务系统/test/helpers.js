@@ -39,6 +39,7 @@ export async function fixture(t, {database = ':memory:', clock} = {}) {
   const req = requester(base);
   const admin = client(), seller = client(), buyer = client(), third = client();
   await req(admin, '/login', 'POST', {username: 'admin', password: 'AdminPassword123!'});
+  await req(admin,'/admin/categories','POST',{name:'生活用品'},201);
   for (const [name, c] of [['seller', seller], ['buyer', buyer], ['third', third]]) {
     await req(c, '/register', 'POST', {username: name, password: 'Password123'}, 201);
     await req(c, '/login', 'POST', {username: name, password: 'Password123'});

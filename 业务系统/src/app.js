@@ -5,8 +5,12 @@ import {fileURLToPath} from 'node:url';
 import {createAccountRoutes} from './accounts.js';
 import {createProductRoutes} from './products.js';
 import {createAdminRoutes} from './admin.js';
+import {createCategoryRoutes} from './categories.js';
 import {createOrderRoutes} from './orders.js';
 import {createConversationRoutes} from './conversations.js';
+import {createGrantRoutes} from './grants.js';
+import {createSanctionRoutes} from './sanctions.js';
+import {createReportRoutes} from './reports.js';
 import {openDatabase} from './database.js';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(p,salt,64).toString('hex')}`;}
@@ -20,9 +24,32 @@ function images(value){if(!Array.isArray(value)||value.length<1||value.length>6)
 export function createApp({database='data/campus.sqlite',adminPassword,clock=Date.now}={}){
  const db=openDatabase(database);const now=()=>clock();
  if(!db.prepare("SELECT id FROM users WHERE role='admin'").get()){if(!adminPassword||adminPassword.length<12)throw new Error('首次启动须设置至少12字符ADMIN_PASSWORD');db.prepare("INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,'admin',?)").run('admin',passwordHash(adminPassword),now());}
- const tx=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();db.exec('COMMIT');return result}catch(e){db.exec('ROLLBACK');throw e}};
+ const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();db.exec('COMMIT');return result}catch(e){db.exec('ROLLBACK');throw e}};
  const audit=(u,action,target,detail='')=>db.prepare('INSERT INTO audit(actor_id,action,target,detail,created_at) VALUES(?,?,?,?,?)').run(u,action,String(target),detail,now());
- const notice=(u,m)=>db.prepare('INSERT INTO notifications(user_id,message,created_at) VALUES(?,?,?)').run(u,m,now());
+ const notice=(userId,eventKey,message)=>db.prepare(`
+  INSERT INTO notification_outbox(user_id,event_key,message,created_at) VALUES(?,?,?,?)
+  ON CONFLICT(user_id,event_key) DO NOTHING
+ `).run(userId,eventKey,message,now());
+ function flushNotifications(){
+  try{
+   transaction(()=>{
+    const pending=db.prepare('SELECT * FROM notification_outbox WHERE delivered_at IS NULL ORDER BY created_at,event_key,user_id').all();
+    const deliver=db.prepare('INSERT INTO notifications(user_id,message,created_at) VALUES(?,?,?)');
+    const mark=db.prepare('UPDATE notification_outbox SET delivered_at=? WHERE user_id=? AND event_key=?');
+    for(const item of pending){
+     deliver.run(item.user_id,item.message,item.created_at);
+     mark.run(now(),item.user_id,item.event_key);
+    }
+   });
+  }catch(error){
+   console.error('notification delivery failed; will retry',error.message);
+  }
+ }
+ const tx=fn=>{
+  const result=transaction(fn);
+  flushNotifications();
+  return result;
+ };
  const quota=u=>db.prepare("SELECT COUNT(*) n FROM products WHERE owner_id=? AND status IN ('pending','live')").get(u).n;
  async function body(req){
   const chunks=[];let size=0;
@@ -32,16 +59,22 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   if(data===null||typeof data!=='object'||Array.isArray(data))fail(400,'请求内容必须为JSON对象');
   return data;
  }
- const session=req=>{const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('campus_session='));if(!cookie)return null;return db.prepare('SELECT s.csrf,s.token_hash,u.id,u.username,u.role,u.certified,u.avatar FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(cookie.slice(15)),now())};
- function auth(req,role){const u=session(req);if(!u)fail(401,'请先登录');if(role==='admin'&&u.role!=='admin')fail(403,'需要管理员权限');if(role==='student'&&(u.role!=='student'||!u.certified))fail(403,'需要已认证学生身份');if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==u.csrf)fail(403,'请求校验失败，请刷新登录');return u}
+ const session=req=>{const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('campus_session='));if(!cookie)return null;return db.prepare('SELECT s.csrf,s.token_hash,u.id,u.username,u.role,u.certified,u.avatar,u.status,u.limited_until,u.banned_until,u.status_reason FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash(cookie.slice(15)),now())};
+ // 处置状态按到期时间惰性恢复：查到已过期就顺手清掉，避免后台定时任务成为唯一恢复路径。
+ function accountState(u){const t=now();if(u.status==='banned'&&u.banned_until>t)return 'banned';if(u.status==='limited'&&u.limited_until>t)return 'limited';if(u.status!=='normal'){db.prepare("UPDATE users SET status='normal',limited_until=0,banned_until=0 WHERE id=?").run(u.id);u.status='normal'}return 'normal'}
+ function auth(req,role){const u=session(req);if(!u)fail(401,'请先登录');const state=accountState(u);if(state==='banned'){db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);fail(403,'账号已被封禁，无法登录使用')}if(role==='admin'&&u.role!=='admin')fail(403,'需要管理员权限');if(role==='member'&&!u.certified)fail(403,'需要已认证学生身份');if(role==='student'){if(u.role!=='student'||!u.certified)fail(403,'需要已认证学生身份');if(state==='limited')fail(403,'账号处于限制期，暂停新增交易')}if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==u.csrf)fail(403,'请求校验失败，请刷新登录');return u}
  const publicProduct=p=>({...p,images:db.prepare('SELECT id FROM product_images WHERE product_id=?').all(p.id).map(x=>`/api/images/${x.id}`)});
  const shared = {db, now, auth, body, fail, text};
- const {handleOrderRequest, expire} = createOrderRoutes({...shared, session, images, amount, tx, quota, notice});
+ const {handleOrderRequest, expire} = createOrderRoutes({...shared, session, images, amount, tx, quota, notice, accountState});
  const routes = [
   createAccountRoutes({...shared, session, images, hash, passwordHash, verify, randomBytes, publicProduct}),
   createConversationRoutes({...shared, hash}),
   createProductRoutes({...shared, session, images, amount, tx, quota, publicProduct}),
+  createCategoryRoutes({...shared, tx, audit}),
   createAdminRoutes({...shared, tx, audit, notice, publicProduct}),
+  createGrantRoutes({...shared, tx, audit, notice}),
+  createSanctionRoutes({...shared, tx, audit, notice}),
+  createReportRoutes({...shared, tx, audit, notice}),
   handleOrderRequest,
  ];
  const server=createServer(async(req,res)=>{const send=(status,data,headers={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data))};try{
@@ -54,5 +87,6 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   }
   fail(404,'接口不存在');
  }catch(e){if(e instanceof Failure)return send(e.status,{error:e.message,...(e.code?{code:e.code}:{})});console.error(e);send(500,{error:'服务异常，操作未完成'})}});
+ flushNotifications();
  const interval=setInterval(()=>{try{expire()}catch(e){console.error('timeout job failed',e)}},60000);interval.unref();server.on('close',()=>{clearInterval(interval);db.close()});return {server,db,expire};
 }

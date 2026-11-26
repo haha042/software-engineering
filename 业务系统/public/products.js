@@ -1,3 +1,5 @@
+import {pendingOrder} from './orders.js';
+
 // 市场页筛选状态：跨渲染保留，重置时回到默认列表。
 const DEFAULT_SORT = 'latest';
 const filters = {q: '', category: '', tradeType: '', condition: '', minPrice: '', maxPrice: '', sort: DEFAULT_SORT};
@@ -48,12 +50,13 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
   else if(page==='detail'){
     const p=await api('/products/'+selected);
     if(user){const favs=await api('/favorites').catch(()=>[]);p.favorited=favs.some(f=>f.id===p.id);}
-    html=heading(p.title)+`<div class="twocol"><section class="panel">${p.images.map(url=>`<img src="${url}" alt="商品图片" class="product-image">`).join('')}<p>${e(p.description)}</p><span class="badge" data-status="${e(p.status)}">${label(p.status)}</span><p>${e(p.owner_name)} · ${e(p.condition_text)}</p><span class="price">${money(p.price)}</span></section><section class="panel"><h2>核对交易约定</h2><div class="delivery-location"><strong>建议交货地点</strong><p>${e(p.delivery_location||'尚未填写，请与卖家协商')}</p><small>最终地点由双方协商确认</small></div><p>资金双方线下处理，平台不验证到账。</p>${p.trade_type==='exchange'?`<form id="offerform">${field('offerTitle','提供物品名称','text','required')}${field('offerCondition','成色','text','required')}<div class="field"><label for="offerDescription">提供物品描述</label><textarea id="offerDescription" required></textarea></div>${field('offerImages','1～6张物品图片','file','accept="image/png,image/jpeg" multiple required')}${field('topup','差价（元）','number','value="0" min="0" max="99999.99" step="0.01"')}<div class="field"><label for="payer">差价付款方向</label><select id="payer"><option value="buyer">买家付给卖家</option><option value="seller">卖家付给买家</option></select></div></form>`:''}${p.status==='live'&&user?.id!==p.owner_id?`<button data-contact-product="${p.id}">联系卖家</button>`:''}${(p.status==='live'||p.status==='rejected')&&user&&user.id===p.owner_id?`<button class="ghost" data-edit="${p.id}">修改并重新提交</button>`:''}${p.status==='live'&&user&&user.id===p.owner_id?`<button class="ghost" data-product-state="off" data-product="${p.id}">下架</button>`:''}${p.status==='off'&&user&&user.id===p.owner_id?`<button class="ghost" data-product-state="relist" data-product="${p.id}">重新上架</button>`:''}${user?`<button class="ghost" data-favorite="${p.id}">${p.favorited?'已收藏':'收藏'}</button>`:''}${p.status==='live'?`<button data-action="buy" data-product-version="${Number(p.version)}" class="primary">确认下单</button>`:'<p>物品暂不可交易。</p>'}<p class="muted">卖家48小时内接单，约定变更须结束原单后重新下单。</p></section></div>`
+    html=heading(p.title)+`<div class="twocol"><section class="panel">${p.images.map(url=>`<img src="${url}" alt="商品图片" class="product-image">`).join('')}<p>${e(p.description)}</p><span class="badge" data-status="${e(p.status)}">${label(p.status)}</span><p>${e(p.owner_name)} · ${e(p.condition_text)}</p><span class="price">${money(p.price)}</span></section><section class="panel"><h2>核对交易约定</h2><div class="delivery-location"><strong>建议交货地点</strong><p>${e(p.delivery_location||'尚未填写，请与卖家协商')}</p><small>最终地点由双方协商确认</small></div><p>资金双方线下处理，平台不验证到账。</p>${p.trade_type==='exchange'?`<form id="offerform">${field('offerTitle','提供物品名称','text','required')}${field('offerCondition','成色','text','required')}<div class="field"><label for="offerDescription">提供物品描述</label><textarea id="offerDescription" required></textarea></div>${field('offerImages','1～6张物品图片','file','accept="image/png,image/jpeg" multiple required')}${field('topup','差价（元）','number','value="0" min="0" max="99999.99" step="0.01"')}<div class="field"><label for="payer">差价付款方向</label><select id="payer"><option value="buyer">买家付给卖家</option><option value="seller">卖家付给买家</option></select></div></form>`:''}${p.status==='live'&&user?.id!==p.owner_id?`<button data-contact-product="${p.id}">联系卖家</button>`:''}${(p.status==='live'||p.status==='rejected')&&user&&user.id===p.owner_id?`<button class="ghost" data-edit="${p.id}">修改并重新提交</button>`:''}${p.status==='live'&&user&&user.id===p.owner_id?`<button class="ghost" data-product-state="off" data-product="${p.id}">下架</button>`:''}${p.status==='off'&&user&&user.id===p.owner_id?`<button class="ghost" data-product-state="relist" data-product="${p.id}">重新上架</button>`:''}${user?`<button class="ghost" data-favorite="${p.id}">${p.favorited?'已收藏':'收藏'}</button>`:''}${(p.status==='live'||user&&pendingOrder(user.id,p.id))?`<button data-action="buy" data-product-version="${Number(p.version)}" class="primary">${user&&pendingOrder(user.id,p.id)?'重试下单':'确认下单'}</button>`:'<p>物品暂不可交易。</p>'}<p class="muted">卖家48小时内接单，约定变更须结束原单后重新下单。</p></section></div>`
   }
     if(page==='publish'||page==='edit'){
       const editing=page==='edit';
       const loaded=editing?(await api('/products/'+selected)):(await api('/products/draft').catch(()=>null)).draft||null;
       const d=loaded||null;
+      const cats=await api('/categories').catch(()=>[])||[];
       const values=d?toFormValues(d):null;
       html=heading(editing?'修改物品':'发布校园闲置',editing?'改完会重新进入审核，审核期间不会出现在市场列表。':'1～6张JPG/PNG，每张不超过5 MiB。草稿只有你自己可见，提交后才进入审核。')
         +`<section class="panel"><form id="${editing?'editform':'publishform'}" data-draft-id="${editing?'':(d?d.id:'')}">`
@@ -61,7 +64,7 @@ export async function renderProductPage({page, user, selected, api, e, btn, fiel
         +(editing?'<p class="muted">当前状态：'+e(statusLabel(d&&d.status))+'。</p>':'')
         +`<div class="draft-bar"><span class="draft-hint">${editing?'修改标题、描述、价格、图片等都会重新审核':'已恢复上次保存的草稿，继续编辑后可以直接提交'}</span>`
         +(editing?'':'<button type="button" class="ghost" data-action="save-draft">保存草稿</button>')+'</div>'
-        +fieldsHtml(values,e,editing)
+        +fieldsHtml(values,e,editing,cats)
         +`<button class="primary">${editing?'保存并重新提交':'提交审核'}</button></form></section>`;
       if(!editing)watchUnsaved();
     }
@@ -95,14 +98,26 @@ function toFormValues(row) {
   };
 }
 
-function fieldsHtml(d, e, editing) {
+function categoryField(d, e, cats) {
+  const list = Array.isArray(cats) ? cats : [];
+  const current = d && (d.categoryId !== undefined ? d.categoryId : d.category_id);
+  const name = d && d.category;
+  const opts = list.map(c => {
+    const picked = String(c.id) === String(current) || (!current && name && c.name === name);
+    return `<option value="${e(String(c.id))}"${picked ? ' selected' : ''}>${e(c.name)}</option>`;
+  }).join('');
+  const placeholder = list.length ? '请选择分类' : '暂无可用分类，请联系管理员';
+  return `<div class="field"><label for="categoryId">分类</label><select id="categoryId" name="categoryId"${list.length ? '' : ' disabled'}><option value="">${placeholder}</option>${opts}</select></div>`;
+}
+
+function fieldsHtml(d, e, editing, cats) {
   const v = k => e(d && d[k] !== null && d[k] !== undefined ? String(d[k]) : '');
   const yuan = k => (d && d[k] !== null && d[k] !== undefined && d.tradeType !== 'exchange') ? String(Number(d[k]) / 100) : '';
   const sel = t => (d && d.tradeType === t) ? ' selected' : '';
   return ''
     + `<div class="field"><label for="title">标题</label><input id="title" name="title" maxlength="80" value="${v('title')}"></div>`
     + `<div class="formgrid">`
-    + `<div class="field"><label for="category">分类</label><input id="category" name="category" placeholder="如：书籍教材" value="${v('category')}"></div>`
+    + categoryField(d, e, cats)
     + `<div class="field"><label for="condition">成色</label><input id="condition" name="condition" placeholder="如：九成新" value="${v('condition')}"></div>`
     + `<div class="field"><label for="tradeType">交易方式</label><select id="tradeType"><option value="sale"${sel('sale')}>出售</option><option value="gift"${sel('gift')}>免费转让</option><option value="exchange"${sel('exchange')}>以物易物</option></select></div>`
     + `<div class="field"><label for="price">出售价格（元）</label><input id="price" name="price" type="number" min="0" max="99999.99" step="0.01" value="${yuan('price')}"></div>`
@@ -114,19 +129,24 @@ function fieldsHtml(d, e, editing) {
     + `<div class="field"><label for="images">图片${editing ? '（不选则保留原图）' : '（重新选择会替换草稿里的图片）'}</label><input id="images" name="images" type="file" accept="image/png,image/jpeg" multiple></div>`;
 }
 
-const payloadOf = $ => ({
-  title: $('#title').value.trim(),
-  category: $('#category').value.trim(),
-  condition: $('#condition').value.trim(),
-  description: $('#description').value.trim(),
-  tradeType: $('#tradeType').value,
-  price: $('#price').value,
-  expectation: $('#expectation').value.trim(),
-  deliveryLocation: $('#deliveryLocation').value.trim()
-});
+const payloadOf = $ => {
+  const pick = $('#categoryId');
+  const chosen = pick && pick.selectedIndex > 0 ? pick.options[pick.selectedIndex] : null;
+  return {
+    title: $('#title').value.trim(),
+    categoryId: pick ? pick.value : '',
+    category: chosen ? chosen.textContent.trim() : '',
+    condition: $('#condition').value.trim(),
+    description: $('#description').value.trim(),
+    tradeType: $('#tradeType').value,
+    price: $('#price').value,
+    expectation: $('#expectation').value.trim(),
+    deliveryLocation: $('#deliveryLocation').value.trim()
+  };
+};
 
-const REQUIRED = [['title', '标题'], ['category', '分类'], ['condition', '成色'], ['description', '描述'], ['deliveryLocation', '建议交货地点']];
-const CLEARABLE = ['title', 'category', 'condition', 'description', 'deliveryLocation', 'price', 'expectation'];
+const REQUIRED = [['title', '标题'], ['categoryId', '分类'], ['condition', '成色'], ['description', '描述'], ['deliveryLocation', '建议交货地点']];
+const CLEARABLE = ['title', 'categoryId', 'condition', 'description', 'deliveryLocation', 'price', 'expectation'];
 
 function clearInvalid($) { for (const key of CLEARABLE) $('#'.concat(key)).classList.remove('invalid'); }
 function markInvalid($, key, message) {

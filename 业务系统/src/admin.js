@@ -1,7 +1,15 @@
+import {summarize} from './statistics.js';
+
 export function createAdminRoutes({db, now, auth, body, fail, text, tx, audit, notice, publicProduct}) {
   return async function handleAdminRequest(req, url, send) {
     const path = url.pathname;
     const method = req.method;
+    if(path==='/api/admin/statistics'&&method==='GET'){
+      auth(req,'admin');
+      const period=url.searchParams.get('period') ?? 'day';
+      if(!['day','week'].includes(period))fail(400,'统计周期须为日或周');
+      return send(200,summarize(db,now(),period));
+    }
     if(path==='/api/admin/users'&&method==='GET'){
      const actor=auth(req,'admin');
      const users=db.prepare(`SELECT u.id,u.username,u.role,u.certified,u.nickname,u.bio,u.created_at,u.failed_attempts,u.locked_until,
@@ -23,6 +31,6 @@ export function createAdminRoutes({db, now, auth, body, fail, text, tx, audit, n
      return send(200,{account,certifications,counts,passwordSet:true});
     }
     if(path==='/api/admin/queue'&&method==='GET'){auth(req,'admin');return send(200,{certifications:db.prepare("SELECT c.*,u.username FROM certifications c JOIN users u ON u.id=c.user_id WHERE c.status='pending'").all(),products:db.prepare("SELECT * FROM products WHERE status='pending'").all().map(publicProduct)})}
-    let match=path.match(/^\/api\/admin\/(certifications|products)\/(\d+)$/);if(match&&method==='POST'){const u=auth(req,'admin'),b=await body(req);if(!['approve','reject'].includes(b.action))fail(400,'审核动作错误');const id=+match[2],reason=b.action==='reject'?text(b.reason):'';tx(()=>{if(match[1]==='certifications'){const c=db.prepare('SELECT * FROM certifications WHERE id=?').get(id);if(!c||c.status!=='pending')fail(409,'申请已处理');if(b.action==='approve'&&b.offlineVerified!==true)fail(400,'请确认已线下核验');if(b.action==='approve'&&db.prepare("SELECT id FROM certifications WHERE student_no=? AND status='approved'").get(c.student_no))fail(409,'学号已绑定其他账号');db.prepare('UPDATE certifications SET status=?,reason=?,reviewed_by=?,reviewed_at=? WHERE id=?').run(b.action==='approve'?'approved':'rejected',reason,u.id,now(),id);if(b.action==='approve')db.prepare('UPDATE users SET certified=1 WHERE id=?').run(c.user_id);notice(c.user_id,'认证审核：'+(b.action==='approve'?'通过':'驳回 '+reason))}else{const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p||p.status!=='pending')fail(409,'商品已处理');db.prepare('UPDATE products SET status=?,review_reason=? WHERE id=?').run(b.action==='approve'?'live':'rejected',reason,id);notice(p.owner_id,'商品审核：'+(b.action==='approve'?'通过':'驳回 '+reason))}audit(u.id,'review_'+match[1],id,b.action+' '+reason)});return send(200,{ok:true})}
+    let match=path.match(/^\/api\/admin\/(certifications|products)\/(\d+)$/);if(match&&method==='POST'){const u=auth(req,'admin'),b=await body(req);if(!['approve','reject'].includes(b.action))fail(400,'审核动作错误');const id=+match[2],reason=b.action==='reject'?text(b.reason):'';tx(()=>{const review=audit(u.id,'review_'+match[1],id,b.action+' '+reason).lastInsertRowid;if(match[1]==='certifications'){const c=db.prepare('SELECT * FROM certifications WHERE id=?').get(id);if(!c||c.status!=='pending')fail(409,'申请已处理');if(b.action==='approve'&&b.offlineVerified!==true)fail(400,'请确认已线下核验');if(b.action==='approve'&&db.prepare("SELECT id FROM certifications WHERE student_no=? AND status='approved'").get(c.student_no))fail(409,'学号已绑定其他账号');db.prepare('UPDATE certifications SET status=?,reason=?,reviewed_by=?,reviewed_at=? WHERE id=?').run(b.action==='approve'?'approved':'rejected',reason,u.id,now(),id);if(b.action==='approve')db.prepare('UPDATE users SET certified=1 WHERE id=?').run(c.user_id);notice(c.user_id,'review:'+review,'认证审核：'+(b.action==='approve'?'通过':'驳回 '+reason))}else{const p=db.prepare('SELECT * FROM products WHERE id=?').get(id);if(!p||p.status!=='pending')fail(409,'商品已处理');db.prepare('UPDATE products SET status=?,review_reason=? WHERE id=?').run(b.action==='approve'?'live':'rejected',reason,id);notice(p.owner_id,'review:'+review,'商品审核：'+(b.action==='approve'?'通过':'驳回 '+reason))}});return send(200,{ok:true})}
   }
 }

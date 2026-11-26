@@ -5,6 +5,9 @@ const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCA
 
 test('C04 编辑与驳回重提：驳回可重提、在售改动重新审核、预订中受限、订单快照不变', async t => {
   const app = createApp({database: ':memory:', adminPassword: 'AdminPassword123!', clock: () => Date.now()});
+  // A03 起发布走分类校验：为原有步骤补上分类夹具（真实流程由管理员维护分类）。
+  for (const name of ['书籍教材', '生活用品', '数码配件', '运动器材', '其他'])
+    app.db.prepare("INSERT OR IGNORE INTO categories(name,status,sort,created_at) VALUES(?,'active',0,?)").run(name, Date.now());
   await new Promise(r => app.server.listen(0, '127.0.0.1', r));
   t.after(() => new Promise(r => app.server.close(r)));
   const base = 'http://127.0.0.1:' + app.server.address().port;

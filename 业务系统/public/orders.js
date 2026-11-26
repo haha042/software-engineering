@@ -21,7 +21,10 @@ async function detailExtras(o, {api, user, e}) {
   if (legacy) {
     try { urls = (await api('/products/' + o.product_id)).images || []; } catch { urls = []; }
   }
-  parts.push(`<div class="delivery-location"><strong>下单时的目标图片</strong>${legacy ? '<p class="muted">该订单创建时未固化图片，以下为商品现有图片的兼容视图，不代表历史原图版本。</p>' : ''}<div class="offer-gallery">${urls.length ? urls.map((url, i) => `<img src="${e(url)}" alt="目标图片${i + 1}" loading="lazy">`).join('') : '<p class="muted">暂无图片</p>'}</div></div>`);
+  const imageTitle = legacy && urls.length ? '当前商品图，仅供参考' : '下单时的目标图片';
+  const imageHint = legacy ? '<p class="muted">这笔旧订单未保存下单时的图片。</p>' : '';
+  const imageAlt = legacy ? '当前商品图' : '下单时的目标图片';
+  parts.push(`<div class="delivery-location"><strong>${imageTitle}</strong>${imageHint}<div class="offer-gallery">${urls.length ? urls.map((url, i) => `<img src="${e(url)}" alt="${imageAlt}${i + 1}" loading="lazy">`).join('') : '<p class="muted">暂无图片</p>'}</div></div>`);
 
   if (o.offer) {
     const seller = user.id === o.seller_id;

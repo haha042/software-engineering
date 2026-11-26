@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture, png, pngAlt} from './helpers.js';
+import {renderOrderPage} from '../public/orders.js';
 
 const bytes = dataUrl => Buffer.from(dataUrl.split(',')[1], 'base64');
 
@@ -50,4 +51,36 @@ test('B03 订单图片固化、参与者授权与历史兼容', async t => {
   const legacy = (await f.req(f.buyer, '/orders')).find(x => x.request_key === 'legacy-key-0001');
   assert.equal(legacy.snapshotImageSource, 'product_legacy', '旧订单明示兼容视图，不冒充历史原图');
   assert.deepEqual(legacy.snapshotImages, []);
+  const renderLegacy = () => renderOrderPage({
+    page:'orders/'+legacy.id, user:{id:row.buyer_id},
+    api:path=>f.req(f.buyer,path),
+    e:String, heading:String, label:String, money:String
+  });
+  const reference = await renderLegacy();
+  assert.match(reference, /未保存下单时的图片/);
+  assert.match(reference, /当前商品图，仅供参考/);
+  assert.ok(reference.includes(current.images[0]));
+  f.app.db.prepare('DELETE FROM product_images WHERE product_id=?').run(pid);
+  const empty = await renderLegacy();
+  assert.match(empty, /历史订单/);
+  assert.match(empty, /未保存下单时的图片/);
+  assert.match(empty, /暂无图片/);
+  assert.doesNotMatch(empty, /<img /);
+});
+
+
+test('B03 保存订单图片失败时整笔下单回滚', async t=>{
+  const f=await fixture(t);
+  const pid=await f.publish();
+  f.app.db.exec(`CREATE TRIGGER fail_order_image BEFORE INSERT ON order_images
+    BEGIN SELECT RAISE(ABORT,'simulated order image failure'); END`);
+  const request={productId:pid,productVersion:1,requestKey:'order-image-failure'};
+  await f.req(f.buyer,'/orders','POST',request,500);
+  assert.deepEqual(await f.req(f.buyer,'/orders'),[]);
+  assert.equal((await f.req(f.buyer,'/products/'+pid)).status,'live');
+  assert.equal(f.app.db.prepare('SELECT COUNT(*) AS total FROM order_images').get().total,0);
+  assert.ok(!(await f.req(f.seller,'/notifications')).some(item=>item.message==='有新订单等待确认'));
+  f.app.db.exec('DROP TRIGGER fail_order_image');
+  await f.req(f.buyer,'/orders','POST',request,201);
+  assert.equal((await f.req(f.buyer,'/orders'))[0].snapshotImages.length,1);
 });

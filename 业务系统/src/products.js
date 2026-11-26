@@ -212,6 +212,7 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       if (p.status === 'sold') fail(409, '已成交的物品不能修改');
       if (p.status === 'draft') fail(409, '草稿请用草稿接口保存');
       if (p.status === 'off') fail(409, '已下架的物品不能直接修改，请先重新上架');
+      if (p.status !== 'live' && p.status !== 'rejected') fail(409, '当前商品状态不允许修改');
       const b = await body(req);
       const type = b.tradeType === undefined ? p.trade_type : b.tradeType;
       if (!['sale', 'gift', 'exchange'].includes(type)) fail(400, '交易方式错误');
@@ -222,6 +223,8 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       const imgs = b.images === undefined ? null : images(b.images);
       const category = b.categoryId === undefined ? null : resolveCategory(b);
       tx(() => {
+        const current = db.prepare("SELECT status,version FROM products WHERE id=?").get(id);
+        if (!current || current.status !== p.status || current.version !== p.version) fail(409, '商品已变化，请刷新后再试');
         db.prepare("UPDATE products SET title=?,category=?,category_id=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL,version=version+1 WHERE id=?")
           .run(text(b.title === undefined ? p.title : b.title, 1, 80),
             category ? category.name : p.category,

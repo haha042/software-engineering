@@ -2,9 +2,8 @@
 // 订单的 paused 字段由 orders 表提供；本模块只补充暂停快照与终止原因，改 orders.js 的必要性为零。
 const ACTIVE = ['pending', 'delivery', 'confirmation'];
 const PENDING_HOURS = 48;
-const DAY = 24 * 60 * 60 * 1000;
 
-export function createModerationRoutes({ db, now, auth, body, fail, text, tx, audit, notice }) {
+export function createModerationRoutes({ db, now, auth, body, fail, text, tx, audit, notice, accountState }) {
   // 迁移写成幂等的：老库补列，新库无操作。放在模块里是为了避开 database.js 的多人同改。
   const ensureSchema = () => {
     const columns = db.prepare('PRAGMA table_info(orders)').all().map(c => c.name);
@@ -28,9 +27,9 @@ export function createModerationRoutes({ db, now, auth, body, fail, text, tx, au
   // BR-22：只有「无进行中订单 + 发布者正常 + 认证有效 + 非违规终态 + 配额未满」才回到在售。
   // 违规终态不参与释放，避免处置被一次终止动作绕过。
   const releaseProduct = product => {
-    if (product.status === 'violation') return 'violation';
-    const owner = db.prepare('SELECT id,certified,status FROM users WHERE id=?').get(product.owner_id);
-    const usable = Boolean(owner && owner.certified && owner.status === 'normal');
+    if (product.status !== 'reserved') return product.status;
+    const owner = db.prepare('SELECT id,certified,status,limited_until,banned_until FROM users WHERE id=?').get(product.owner_id);
+    const usable = Boolean(owner && owner.certified && accountState(owner) === 'normal');
     const next = usable && quotaOf(owner.id) < 20 ? 'live' : 'off';
     db.prepare('UPDATE products SET status=? WHERE id=?').run(next, product.id);
     return next;
@@ -77,10 +76,11 @@ export function createModerationRoutes({ db, now, auth, body, fail, text, tx, au
       const actor = auth(req, 'admin');
       const b = await body(req);
       const reason = text(b.reason, 5, 200);
-      const product = findProduct(Number(match[1]));
-      if (!product) fail(404, '商品不存在');
-      if (product.status === 'violation') fail(409, '商品已处于违规下架状态');
+      const productId = Number(match[1]);
       const paused = tx(() => {
+        const product = findProduct(productId);
+        if (!product) fail(404, '商品不存在');
+        if (!['live','reserved'].includes(product.status)) fail(409, '只有在售或已预订商品可违规下架');
         db.prepare("UPDATE products SET status='violation' WHERE id=?").run(product.id);
         const active = db.prepare(`SELECT * FROM orders WHERE product_id=? AND status IN ('pending','delivery','confirmation')`).all(product.id);
         let count = 0;
@@ -93,7 +93,7 @@ export function createModerationRoutes({ db, now, auth, body, fail, text, tx, au
         notice(product.owner_id, 'product:' + event, `你的商品《${product.title}》因违规被下架。依据：${reason}`);
         return count;
       });
-      return send(200, { id: product.id, status: 'violation', pausedOrders: paused });
+      return send(200, { id: productId, status: 'violation', pausedOrders: paused });
     }
 
     // 异常订单：暂停 / 恢复 / 终止，三个动作都必须写原因并留痕。
@@ -103,22 +103,22 @@ export function createModerationRoutes({ db, now, auth, body, fail, text, tx, au
       const b = await body(req);
       if (!['pause', 'resume', 'terminate'].includes(b.action)) fail(400, '处置动作须为暂停、恢复或终止');
       const reason = text(b.reason, 5, 200);
-      const order = findOrder(Number(match[1]));
-      if (!order) fail(404, '订单不存在');
-      if (!ACTIVE.includes(order.status)) fail(409, '订单已结束，不能再处置');
+      const result = tx(() => {
+        const order = findOrder(Number(match[1]));
+        if (!order) fail(404, '订单不存在');
+        if (!ACTIVE.includes(order.status)) fail(409, '订单已结束，不能再处置');
+        if (b.action === 'pause') {
+          if (order.paused) fail(409, '订单已处于暂停状态');
+          pauseOrder(actor.id, order, reason);
+          return {id:order.id, paused:true};
+        }
 
-      if (b.action === 'pause') {
-        if (order.paused) fail(409, '订单已处于暂停状态');
-        tx(() => pauseOrder(actor.id, order, reason));
-        return send(200, { id: order.id, paused: true });
-      }
-
-      if (b.action === 'resume') {
-        if (!order.paused) fail(409, '订单未被暂停，无需恢复');
-        const stage = order.paused_stage || order.status;
-        // 待确认阶段恢复时重设 48 小时，否则等于一恢复就超时。
-        const deadline = stage === 'pending' ? now() + PENDING_HOURS * 60 * 60 * 1000 : order.deadline;
-        tx(() => {
+        const product = findProduct(order.product_id);
+        if (b.action === 'resume') {
+          if (!order.paused) fail(409, '订单未被暂停，无需恢复');
+          if (product.status === 'violation') fail(409, '关联商品已违规下架，订单不能恢复');
+          const stage = order.paused_stage || order.status;
+          const deadline = stage === 'pending' ? now() + PENDING_HOURS * 60 * 60 * 1000 : order.deadline;
           db.prepare("UPDATE orders SET paused=0,status=?,deadline=?,paused_stage=NULL,paused_deadline=0,paused_at=0,pause_reason='' WHERE id=?")
             .run(stage, deadline, order.id);
           const event = logEvent(order.id, actor.id, 'resume', reason);
@@ -126,12 +126,9 @@ export function createModerationRoutes({ db, now, auth, body, fail, text, tx, au
           notice(order.buyer_id, 'order-resume:' + event, message);
           notice(order.seller_id, 'order-resume:' + event, message);
           audit(actor.id, 'resume_order', order.id, reason);
-        });
-        return send(200, { id: order.id, paused: false, stage, deadline });
-      }
+          return {id:order.id, paused:false, stage, deadline};
+        }
 
-      // 终止：订单进 closed 终态，商品按 BR-22 释放；商品本身是违规终态时保持不动。
-      const result = tx(() => {
         db.prepare("UPDATE orders SET status='closed',close_reason=?,paused=0,paused_stage=NULL,paused_deadline=0,paused_at=0 WHERE id=?")
           .run(reason, order.id);
         const event = logEvent(order.id, actor.id, 'terminate', reason);
@@ -139,9 +136,9 @@ export function createModerationRoutes({ db, now, auth, body, fail, text, tx, au
         notice(order.buyer_id, 'order-terminate:' + event, message);
         notice(order.seller_id, 'order-terminate:' + event, message);
         audit(actor.id, 'terminate_order', order.id, reason);
-        return releaseProduct(findProduct(order.product_id));
+        return {id:order.id, status:'closed', productStatus:releaseProduct(product)};
       });
-      return send(200, { id: order.id, status: 'closed', productStatus: result });
+      return send(200,result);
     }
   };
 }

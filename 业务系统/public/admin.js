@@ -6,6 +6,27 @@ export async function renderAdminPage({page, user, api, e, heading, emptyState, 
     if(auditFilter.actor)qs.set('actor',auditFilter.actor);
     const rows=await api('/admin/audit?'+qs.toString());
     html=heading('审计留痕','只读记录：管理员的操作与关键查询都会写在这里，不可删除。')+`<section class="panel"><a href="#admin">返回管理工作台</a><form id="auditfilter" class="filters"><div class="field"><label for="auditAction">动作</label><input id="auditAction" name="action" value="${e(auditFilter.action)}" placeholder="如 ban_account"></div><div class="field"><label for="auditActor">操作人</label><input id="auditActor" name="actor" value="${e(auditFilter.actor)}" placeholder="用户名"></div><button type="submit">查询</button> <button type="button" data-audit-reset>清空条件</button></form>${rows.length?`<table class="table"><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>详情</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${new Date(r.created_at).toLocaleString()}</td><td>${e(r.actor||'系统')}</td><td>${e(r.action)}</td><td>${e(String(r.target??''))}</td><td>${e(r.detail||'')}</td></tr>`).join('')}</tbody></table>`:'<p>没有匹配的审计记录。</p>'}</section>`;
+  if(/^admin-statistics(?:\/week)?$/.test(page)){
+    const period=page.endsWith('/week')?'week':'day';
+    const {products,buckets}=await api('/admin/statistics?period='+period);
+    const breakdown=rows=>rows.map(row=>e(label(row.name))+' '+row.count).join('、')||'暂无数据';
+    html=heading('运营统计','北京时间 · 周一为每周起点')+`<section class="panel">
+      <p><a href="#admin">返回管理工作台</a></p>
+      <p><a href="#admin-statistics" ${period==='day'?'aria-current="page"':''}>按日</a> ·
+      <a href="#admin-statistics/week" ${period==='week'?'aria-current="page"':''}>按周</a></p>
+      <h2>商品现状</h2>
+      <dl><dt>状态</dt><dd>${breakdown(products.statuses)}</dd>
+      <dt>分类</dt><dd>${breakdown(products.categories)}</dd>
+      <dt>交易方式</dt><dd>${breakdown(products.tradeTypes)}</dd></dl>
+      <h2>订单和用户</h2>
+      <p>订单按创建时间归组。学生按注册时间归组，认证数取组内当前已认证人数。</p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th scope="col">起始日期</th><th scope="col">订单</th><th scope="col">订单状态</th>
+        <th scope="col">注册</th><th scope="col">认证</th><th scope="col">封禁</th></tr></thead>
+        <tbody>${buckets.map(row=>`<tr><th scope="row">${e(row.date)}</th>
+          <td>${row.orders}</td><td>${breakdown(row.orderStatuses.map(({status,count})=>({name:status,count})))}</td>
+          <td>${row.registered}</td><td>${row.certified}</td><td>${row.banned??'暂无统计来源'}</td></tr>`).join('')}</tbody>
+      </table></div></section>`;
   }
   if(page==='admin-users'){
     const {users}=await api('/admin/users');
@@ -18,7 +39,7 @@ export async function renderAdminPage({page, user, api, e, heading, emptyState, 
   if(page==='admin'){
     if(user.role!=='admin')throw Error('需要管理员权限');
     const q=await api('/admin/queue');
-    html=`<section class="panel"><a href="#admin-users">账号管理 · 查看所有账号 →</a> · <a href="#admin-audit">审计留痕 · 只读记录 →</a></section>`+heading('人工审核工作台','请在线下核验身份后审核。审核操作在服务端验证管理员权限。')+`<section class="panel"><h2>身份审核</h2>${q.certifications.map(c=>`<div class="notice"><b>${e(c.real_name)} · ${e(c.student_no)}</b><p>${e(c.username)}</p><button data-review="certifications:${c.id}:approve">已线下核验，通过</button> <button data-review="certifications:${c.id}:reject">驳回</button></div>`).join('')||'暂无待审申请'}</section><section class="panel"><h2>商品审核</h2>${q.products.map(p=>`<div class="notice"><h3>${e(p.title)}</h3><p>${e(p.description)}</p>${p.images.map(url=>`<img src="${url}" alt="审核图片" class="review-image" loading="lazy">`).join('')}<p>${label(p.trade_type)} · ${money(p.price)}</p><button data-review="products:${p.id}:approve">通过</button> <button data-review="products:${p.id}:reject">驳回</button></div>`).join('')||'暂无待审商品'}</section>`
+    html=`<section class="panel"><a href="#admin-users">账号管理 · 查看所有账号 →</a> · <a href="#admin-audit">审计留痕</a> · <a href="#admin-statistics">运营统计</a></section>`+heading('人工审核工作台','请在线下核验身份后审核。审核操作在服务端验证管理员权限。')+`<section class="panel"><h2>身份审核</h2>${q.certifications.map(c=>`<div class="notice"><b>${e(c.real_name)} · ${e(c.student_no)}</b><p>${e(c.username)}</p><button data-review="certifications:${c.id}:approve">已线下核验，通过</button> <button data-review="certifications:${c.id}:reject">驳回</button></div>`).join('')||'暂无待审申请'}</section><section class="panel"><h2>商品审核</h2>${q.products.map(p=>`<div class="notice"><h3>${e(p.title)}</h3><p>${e(p.description)}</p>${p.images.map(url=>`<img src="${url}" alt="审核图片" class="review-image" loading="lazy">`).join('')}<p>${label(p.trade_type)} · ${money(p.price)}</p><button data-review="products:${p.id}:approve">通过</button> <button data-review="products:${p.id}:reject">驳回</button></div>`).join('')||'暂无待审商品'}</section>`
   }
   return html;
 }

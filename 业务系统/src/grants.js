@@ -30,8 +30,8 @@ export function createGrantRoutes({ db, now, auth, body, fail, text, tx, audit, 
         tx(() => {
           db.prepare("UPDATE users SET role='admin' WHERE id=?").run(user.id);
           db.prepare('INSERT INTO admin_grants(user_id,granted_by,granted_at,note) VALUES(?,?,?,?)').run(user.id, actor.id, now(), note);
-          notice(user.id, '你已被授予管理员权限');
-          audit(actor.id, 'grant_admin', user.id, note);
+          const event = audit(actor.id, 'grant_admin', user.id, note).lastInsertRowid;
+          notice(user.id, 'account:'+event, '你已被授予管理员权限');
         });
         return send(200, { id: user.id, role: 'admin' });
       }
@@ -41,8 +41,8 @@ export function createGrantRoutes({ db, now, auth, body, fail, text, tx, audit, 
       tx(() => {
         db.prepare("UPDATE users SET role='student' WHERE id=?").run(user.id);
         db.prepare('UPDATE admin_grants SET revoked_by=?,revoked_at=? WHERE user_id=? AND revoked_at IS NULL').run(actor.id, now(), user.id);
-        notice(user.id, '你的管理员权限已被撤销');
-        audit(actor.id, 'revoke_admin', user.id, note);
+        const event = audit(actor.id, 'revoke_admin', user.id, note).lastInsertRowid;
+        notice(user.id, 'account:'+event, '你的管理员权限已被撤销');
       });
       return send(200, { id: user.id, role: 'student' });
     }
@@ -57,8 +57,8 @@ export function createGrantRoutes({ db, now, auth, body, fail, text, tx, audit, 
       if (!user) fail(404, '账号不存在');
       tx(() => {
         db.prepare('UPDATE users SET failed_attempts=0,locked_until=0 WHERE id=?').run(user.id);
-        notice(user.id, '你的账号已恢复，可以重新登录');
-        audit(actor.id, 'restore_account', user.id, reason);
+        const event = audit(actor.id, 'restore_account', user.id, reason).lastInsertRowid;
+        notice(user.id, 'account:'+event, '你的账号已恢复，可以重新登录');
       });
       return send(200, { id: user.id, locked: false });
     }

@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,product_id INTEGER NOT 
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_order ON orders(product_id) WHERE status IN ('pending','delivery','confirmation');
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,order_id INTEGER NOT NULL REFERENCES orders(id),actor_id INTEGER REFERENCES users(id),action TEXT NOT NULL,detail TEXT,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),message TEXT NOT NULL,read_at INTEGER,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS notification_outbox(
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ event_key TEXT NOT NULL,
+ message TEXT NOT NULL,
+ created_at INTEGER NOT NULL,
+ delivered_at INTEGER,
+ PRIMARY KEY(user_id,event_key)
+);
+CREATE INDEX IF NOT EXISTS pending_notifications ON notification_outbox(created_at) WHERE delivered_at IS NULL;
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,actor_id INTEGER REFERENCES users(id),action TEXT NOT NULL,target TEXT NOT NULL,detail TEXT,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS conversations(id INTEGER PRIMARY KEY,product_id INTEGER NOT NULL REFERENCES products(id),buyer_id INTEGER NOT NULL REFERENCES users(id),seller_id INTEGER NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL,UNIQUE(product_id,buyer_id,seller_id));
 CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY,conversation_id INTEGER NOT NULL REFERENCES conversations(id),sender_id INTEGER NOT NULL REFERENCES users(id),content TEXT NOT NULL,request_key TEXT NOT NULL,created_at INTEGER NOT NULL,read_at INTEGER,UNIQUE(sender_id,request_key));
@@ -20,6 +29,14 @@ CREATE INDEX IF NOT EXISTS message_conversation ON messages(conversation_id,id);
 CREATE INDEX IF NOT EXISTS conversation_buyer ON conversations(buyer_id);
 CREATE INDEX IF NOT EXISTS conversation_seller ON conversations(seller_id);
 `);
+  db.exec(`CREATE TABLE IF NOT EXISTS favorites(
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    created_at INTEGER NOT NULL,
+    UNIQUE(user_id, product_id)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS favorites_user ON favorites(user_id, id DESC)');
 // 兼容已有数据库，保留旧商品，未填写地点时由页面明确提示。
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_location')){
  db.exec("ALTER TABLE products ADD COLUMN delivery_location TEXT NOT NULL DEFAULT ''");

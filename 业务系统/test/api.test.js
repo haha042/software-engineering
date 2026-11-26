@@ -49,6 +49,39 @@ test('HTTP业务闭环、权限、认证唯一性、锁定、取消及超时',as
  const prod=async()=>{const p=await req(seller,'/products','POST',{title:'测试台灯',category:'生活用品',condition:'九成新',description:'功能正常',tradeType:'sale',price:50,deliveryLocation:'北校区图书馆正门',images:[png]},201);await req(admin,'/admin/products/'+p.id,'POST',{action:'approve'});return p.id};
  const pid=await prod();assert.equal((await req(buyer,'/products/'+pid)).delivery_location,'北校区图书馆正门');await req(seller,'/orders','POST',{productId:pid,requestKey:'self-request'},403);const [r1,r2]=await Promise.all([req(buyer,'/orders','POST',{productId:pid,requestKey:'request-001'},201),req(buyer,'/orders','POST',{productId:pid,requestKey:'request-001'},201)]);assert.equal(r1.id,r2.id);await req(buyer,'/orders','POST',{productId:pid,requestKey:'request-002'},409);const id=r1.id;assert.equal((await req(buyer,'/orders'))[0].snapshot.delivery_location,'北校区图书馆正门');
  await req(third,'/orders/'+id+'/action','POST',{action:'accept'},403);await req(seller,'/orders/'+id+'/action','POST',{action:'accept'});await req(buyer,'/orders/'+id+'/action','POST',{action:'request_cancel',reason:'时间不合适'});await req(buyer,'/orders/'+id+'/action','POST',{action:'agree_cancel'},409);await req(seller,'/orders/'+id+'/action','POST',{action:'deliver',location:'校门',note:'交付',occurredAt:time},409);await req(buyer,'/orders/'+id+'/action','POST',{action:'withdraw_cancel'});await req(seller,'/orders/'+id+'/action','POST',{action:'deliver',location:'校门',note:'已交付',occurredAt:time});await req(buyer,'/orders/'+id+'/action','POST',{action:'confirm'});let os=await req(buyer,'/orders');assert.equal(os[0].status,'confirmation');await req(seller,'/orders/'+id+'/action','POST',{action:'confirm'});os=await req(buyer,'/orders');assert.equal(os[0].status,'completed');await req(buyer,'/orders/'+id+'/action','POST',{action:'confirm'},409);
+ const reminderProduct=await prod();
+ app.db.exec(`CREATE TRIGGER fail_notification BEFORE INSERT ON notifications
+   BEGIN SELECT RAISE(ABORT,'simulated delivery failure'); END`);
+ const reminderOrder=await req(buyer,'/orders','POST',{productId:reminderProduct,requestKey:'reminder-order'},201);
+ const orderPath='/orders/'+reminderOrder.id+'/action';
+ const newOrderNotices=async()=>(await req(seller,'/notifications')).filter(n=>n.message==='有新订单等待确认');
+ assert.equal((await newOrderNotices()).length,1);
+ app.db.exec('DROP TRIGGER fail_notification');
+ app.expire();
+ app.expire();
+ assert.equal((await newOrderNotices()).length,2);
+ await req(seller,orderPath,'POST',{action:'accept'});
+ await req(seller,orderPath,'POST',{action:'deliver',location:'校门',note:'已交付',occurredAt:time});
+ const reminders=async c=>(await req(c,'/notifications')).filter(n=>n.message.includes('提交交付记录已满'));
+ time+=7*24*60*60*1000-1;
+ for(const [name,c] of [['seller',seller],['buyer',buyer],['third',third]]){
+   await req(c,'/login','POST',{username:name,password:'Password123'});
+ }
+ app.expire();
+ assert.equal((await reminders(buyer)).length,0);
+ time++;
+ await req(admin,'/login','POST',{username:'admin',password:'AdminPassword123!'});
+ app.expire();
+ app.expire();
+ const [reminder]=await reminders(buyer);
+ assert.equal((await reminders(buyer)).length,1);
+ assert.equal((await reminders(seller)).length,1);
+ assert.equal((await reminders(third)).length,0);
+ await req(third,'/notifications/'+reminder.id+'/read','POST',{});
+ assert.equal((await reminders(buyer))[0].read_at,null);
+ await req(buyer,'/notifications/'+reminder.id+'/read','POST',{});
+ assert.equal((await reminders(buyer))[0].read_at,time);
+ assert.equal((await req(buyer,'/orders')).find(o=>o.id===reminderOrder.id).status,'confirmation');
  const p2=await prod();const o2=await req(buyer,'/orders','POST',{productId:p2,requestKey:'request-003'},201);time+=172800000;await req(seller,'/login','POST',{username:'seller',password:'Password123'});await req(buyer,'/login','POST',{username:'buyer',password:'Password123'});await req(seller,'/orders/'+o2.id+'/action','POST',{action:'accept'},409);app.expire();os=await req(buyer,'/orders');assert.equal(os.find(o=>o.id===o2.id).status,'closed');assert.equal((await req(buyer,'/products/'+p2)).status,'live');
  const bad=client();bad.cookie=buyer.cookie;await req(bad,'/orders','POST',{productId:p2,requestKey:'csrf-request'},403);
 });

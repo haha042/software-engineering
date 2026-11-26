@@ -131,6 +131,56 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       });
       return send(201, { id, status: 'pending' });
     }
+    // —— 收藏（C06）：需要认证；每人最多 100 件；重复收藏幂等；失效商品仍返回但带 available 标记 ——
+    if (path === '/api/favorites' && method === 'GET') {
+      const u = auth(req, 'student');
+      const rows = db.prepare(`SELECT f.id AS favorite_id, f.created_at AS favorited_at, p.*
+        FROM favorites f JOIN products p ON p.id=f.product_id
+        WHERE f.user_id=? ORDER BY f.id DESC`).all(u.id);
+      return send(200, rows.map(r => ({
+        ...publicProduct(r),
+        favoriteId: r.favorite_id,
+        favoritedAt: r.favorited_at,
+        available: r.status === 'live'
+      })));
+    }
+    let favMatch = path.match(/^\/api\/products\/(\d+)\/favorite$/);
+    if (favMatch && (method === 'POST' || method === 'DELETE')) {
+      const u = auth(req, 'student', '收藏需要先完成校园认证');
+      const id = +favMatch[1];
+      if (!db.prepare('SELECT id FROM products WHERE id=?').get(id)) fail(404, '物品不存在');
+      const exists = db.prepare('SELECT id FROM favorites WHERE user_id=? AND product_id=?').get(u.id, id);
+      if (method === 'DELETE') {
+        if (exists) db.prepare('DELETE FROM favorites WHERE id=?').run(exists.id);
+        return send(200, { ok: true, favorited: false });
+      }
+      if (exists) return send(200, { ok: true, favorited: true, duplicated: true });
+      const n = db.prepare('SELECT COUNT(*) n FROM favorites WHERE user_id=?').get(u.id).n;
+      if (n >= 100) fail(409, '收藏已达 100 件上限，请先清理不看的物品');
+      db.prepare('INSERT INTO favorites(user_id,product_id,created_at) VALUES(?,?,?)').run(u.id, id, now());
+      return send(201, { ok: true, favorited: true });
+    }
+    // —— 下架与重新上架（C05）：只有本人能操作；预订中不可下架；重提需要账号仍认证且未超配额 ——
+    if (method === 'POST' && /^\/api\/products\/\d+\/status$/.test(path)) {
+      const u = auth(req, 'student');
+      const id = Number(path.split('/')[3]);
+      const b = await body(req);
+      const action = b.action;
+      if (!['off', 'relist'].includes(action)) fail(400, '操作须为下架或重新上架');
+      const p = db.prepare('SELECT * FROM products WHERE id=?').get(id);
+      if (!p || p.owner_id !== u.id) fail(404, '物品不存在');
+      if (action === 'off') {
+        if (p.status === 'reserved') fail(409, '预订中的物品不能下架，请先结束订单');
+        if (p.status !== 'live') fail(409, '只有在售的物品可以下架');
+        db.prepare("UPDATE products SET status='off' WHERE id=?").run(id);
+        return send(200, { id, status: 'off' });
+      }
+      if (p.status !== 'off') fail(409, '只有已下架的物品可以重新上架');
+      if (!u.certified) fail(403, '账号认证已失效，请先恢复认证后再重新上架');
+      if (quota(u.id) >= 20) fail(409, '待审核及在售已达 20 件，请先处理其他物品');
+      db.prepare("UPDATE products SET status='live' WHERE id=?").run(id);
+      return send(200, { id, status: 'live' });
+    }
     // —— 编辑与驳回重提（C04）：驳回/在售可改，改完重新进入审核；预订中、审核中、已成交、草稿、已下架不允许 ——
     if (method === 'PATCH' && /^\/api\/products\/\d+$/.test(path)) {
       const u = auth(req, 'student');

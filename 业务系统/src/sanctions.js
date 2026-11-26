@@ -50,8 +50,8 @@ export function createSanctionRoutes({ db, now, auth, body, fail, text, tx, audi
       if (b.action === 'lift') {
         tx(() => {
           db.prepare("UPDATE users SET status='normal',limited_until=0,banned_until=0,status_reason='' WHERE id=?").run(user.id);
-          notice(user.id, '账号处置已解除');
-          audit(actor.id, 'lift_sanction', user.id, reason);
+          const event = audit(actor.id, 'lift_sanction', user.id, reason).lastInsertRowid;
+          notice(user.id, 'account:'+event, '账号处置已解除');
         });
         return send(200, { id: user.id, state: 'normal' });
       }
@@ -65,13 +65,13 @@ export function createSanctionRoutes({ db, now, auth, body, fail, text, tx, audi
           db.prepare("UPDATE users SET status='banned',banned_until=?,limited_until=0,status_reason=? WHERE id=?").run(until, reason, user.id);
           // 封禁立刻生效：清空会话，旧 cookie 下一次请求就会被拒。
           db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
-          notice(user.id, `你的账号已被封禁 ${BAN_DAYS} 天。依据：${reason}`);
-          audit(actor.id, 'ban_account', user.id, reason);
+          const event = audit(actor.id, 'ban_account', user.id, reason).lastInsertRowid;
+          notice(user.id, 'account:'+event, `你的账号已被封禁 ${BAN_DAYS} 天。依据：${reason}`);
         } else {
           db.prepare("UPDATE users SET status='limited',limited_until=?,banned_until=0,status_reason=? WHERE id=?").run(until, reason, user.id);
           // 限制不踢下线：仍可登录、浏览、履约存量订单，只是不能新增交易。
-          notice(user.id, `你的账号被限制 ${LIMIT_DAYS} 天，期间不能发布商品或下单。依据：${reason}`);
-          audit(actor.id, 'limit_account', user.id, reason);
+          const event = audit(actor.id, 'limit_account', user.id, reason).lastInsertRowid;
+          notice(user.id, 'account:'+event, `你的账号被限制 ${LIMIT_DAYS} 天，期间不能发布商品或下单。依据：${reason}`);
         }
       });
       return send(200, { id: user.id, state: banned ? 'banned' : 'limited', until });

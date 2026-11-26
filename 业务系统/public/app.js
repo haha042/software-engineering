@@ -150,7 +150,7 @@ async function render(){
       html = await renderProductPage(productContext);
     } else if (page === 'notifications' || page === 'orders' || /^orders\/\d+$/.test(page)) {
       html = await renderOrderPage({...context, label, money});
-    } else if (page === 'admin' || page === 'admin-users' || /^admin-users\/\d+$/.test(page)) {
+    } else if (page === 'admin' || /^admin-statistics(?:\/week)?$/.test(page) || page === 'admin-users' || /^admin-users\/\d+$/.test(page)) {
       html = await renderAdminPage({...context, label, money});
     }
     $('#app').innerHTML=html;

@@ -36,7 +36,7 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
  function auth(req,role){const u=session(req);if(!u)fail(401,'请先登录');if(role==='admin'&&u.role!=='admin')fail(403,'需要管理员权限');if(role==='student'&&(u.role!=='student'||!u.certified))fail(403,'需要已认证学生身份');if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==u.csrf)fail(403,'请求校验失败，请刷新登录');return u}
  const publicProduct=p=>({...p,images:db.prepare('SELECT id FROM product_images WHERE product_id=?').all(p.id).map(x=>`/api/images/${x.id}`)});
  const shared = {db, now, auth, body, fail, text};
- const {handleOrderRequest, expire} = createOrderRoutes({...shared, images, amount, tx, quota, notice});
+ const {handleOrderRequest, expire} = createOrderRoutes({...shared, session, images, amount, tx, quota, notice});
  const routes = [
   createAccountRoutes({...shared, session, images, hash, passwordHash, verify, randomBytes, publicProduct}),
   createConversationRoutes({...shared, hash}),

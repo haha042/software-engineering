@@ -28,6 +28,15 @@ CREATE INDEX IF NOT EXISTS conversation_seller ON conversations(seller_id);
     UNIQUE(user_id, product_id)
   )`);
   db.exec('CREATE INDEX IF NOT EXISTS favorites_user ON favorites(user_id, id DESC)');
+// B03：订单侧图片副本，与商品图片解耦，历史订单仍读得到下单时原图。
+db.exec(`CREATE TABLE IF NOT EXISTS order_images(
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  kind TEXT NOT NULL,
+  source_image_id INTEGER,
+  data_url TEXT NOT NULL
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS order_images_order ON order_images(order_id, id)');
 // 兼容已有数据库，保留旧商品，未填写地点时由页面明确提示。
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_location')){
  db.exec("ALTER TABLE products ADD COLUMN delivery_location TEXT NOT NULL DEFAULT ''");

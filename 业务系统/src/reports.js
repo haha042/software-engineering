@@ -135,9 +135,9 @@ export function createReportRoutes({ db, now, auth, body, fail, text, tx, audit,
       tx(() => {
         db.prepare('UPDATE reports SET status=?,result=?,handled_by=?,handled_at=? WHERE id=?').run('handled', result, actor.id, now(), id);
         // 通知举报人结果；成立时提醒被举报方，但不向被举报方透露举报人身份。
-        notice(report.reporter_id, `举报结果：${verdict}。依据：${result}`);
+        notice(report.reporter_id, `report:${id}:reporter`, `举报结果：${verdict}。依据：${result}`);
         const target = targetOf(report);
-        if (target && b.action === 'uphold' && b.notifyTarget === true) notice(target.user_id, `你收到一条举报，经核实${verdict}。依据：${result}`);
+        if (target && b.action === 'uphold' && b.notifyTarget === true) notice(target.user_id, `report:${id}:target`, `你收到一条举报，经核实${verdict}。依据：${result}`);
         audit(actor.id, 'handle_report', id, `${verdict} ${result}`);
       });
       return send(200, { id, status: 'handled', result });

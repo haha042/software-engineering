@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
-    "setup": "node src/setup.js"
+    "setup": "node src/setup.js",
+    "restore": "node scripts/restore-backup.js"
   }
 }

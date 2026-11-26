@@ -101,11 +101,13 @@ test('历史商品分类迁移：按旧文本建分类并回填 category_id，�
   const rows = second.prepare('SELECT p.title, c.name FROM products p JOIN categories c ON c.id=p.category_id ORDER BY p.id').all();
   assert.deepEqual(rows.map(r => [r.title, r.name]), [['旧书', '书籍教材'], ['旧台灯', '生活用品']]);
   const count = second.prepare('SELECT COUNT(*) n FROM categories').get().n;
+  second.prepare('UPDATE categories SET name=? WHERE name=?').run('教材资料','书籍教材');
   second.close();
 
   // 再次启动不重复建分类、不回填空值
   const third = openDatabase(file);
   assert.equal(third.prepare('SELECT COUNT(*) n FROM categories').get().n, count);
+  assert.equal(third.prepare('SELECT id FROM categories WHERE name=?').get('书籍教材'),undefined);
   assert.equal(third.prepare('SELECT COUNT(*) n FROM products WHERE category_id IS NULL').get().n, 0);
   third.close();
 });

@@ -50,7 +50,7 @@ test('发布商品：只接受启用中的 categoryId，文本分类与停用分
   assert.equal(textOnly.error, '分类不存在，请重新选择');
 
   // 非法或不存在
-  for (const categoryId of [99999, 0, -1, 'abc', 1.5]) {
+  for (const categoryId of [99999, 0, -1, 'abc', 1.5, true, [books.id]]) {
     const bad = await req(seller, '/products', 'POST', {...base_product, categoryId}, 400);
     assert.equal(bad.error, '分类不存在', String(categoryId));
   }

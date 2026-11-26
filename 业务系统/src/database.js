@@ -47,9 +47,9 @@ if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='category_i
  db.exec('ALTER TABLE products ADD COLUMN category_id INTEGER');
 }
 db.exec(`INSERT OR IGNORE INTO categories(name,status,sort,created_at)
- SELECT DISTINCT category,'active',0,${Date.now()} FROM products WHERE TRIM(category)<>'';
+ SELECT DISTINCT category,'active',0,${Date.now()} FROM products WHERE category_id IS NULL AND status<>'draft' AND TRIM(category)<>'';
  UPDATE products SET category_id=(SELECT id FROM categories c WHERE c.name=products.category)
- WHERE category_id IS NULL AND TRIM(category)<>'';`);
+ WHERE category_id IS NULL AND status<>'draft' AND TRIM(category)<>'';`);
 const userColumns=db.prepare('PRAGMA table_info(users)').all();
 for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===name))db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
 return db;}

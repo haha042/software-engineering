@@ -15,13 +15,13 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
     if (raw === undefined || raw === null || raw === '') {
       const name = String(b.category === undefined || b.category === null ? '' : b.category).trim();
       if (!name) fail(400, '请选择分类');
-      const legacy = db.prepare('SELECT id,name,status FROM categories WHERE name=? ORDER BY id LIMIT 1').get(name.slice(0, 20));
+      const legacy = db.prepare('SELECT id,name,status FROM categories WHERE name=? ORDER BY id LIMIT 1').get(name);
       if (!legacy) fail(400, '分类不存在，请重新选择');
       if (legacy.status !== 'active') fail(400, '分类已停用，请重新选择');
       return legacy;
     }
-    const id = Number(raw);
-    if (!Number.isInteger(id) || id <= 0) fail(400, '分类不存在');
+    const id = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+    if (!Number.isSafeInteger(id) || id <= 0) fail(400, '分类不存在');
     const row = db.prepare('SELECT id,name,status FROM categories WHERE id=?').get(id);
     if (!row) fail(400, '分类不存在');
     if (row.status !== 'active') fail(400, '分类已停用，请重新选择');

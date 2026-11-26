@@ -47,4 +47,6 @@ for(const name of ['nickname','bio','avatar'])if(!userColumns.some(c=>c.name===n
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='version')){
  db.exec('ALTER TABLE products ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
 }
+// B04：拒单原因留痕。
+if(!db.prepare('PRAGMA table_info(orders)').all().some(c=>c.name==='reject_reason'))db.exec('ALTER TABLE orders ADD COLUMN reject_reason TEXT');
 return db;}

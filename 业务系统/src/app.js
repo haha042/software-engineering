@@ -42,7 +42,7 @@ export function createApp({database='data/campus.sqlite',adminPassword,clock=Dat
   createConversationRoutes({...shared, hash}),
   createProductRoutes({...shared, session, images, amount, tx, quota, publicProduct}),
   createAdminRoutes({...shared, tx, audit, notice, publicProduct}),
-  createReportRoutes({...shared, tx}),
+  createReportRoutes({...shared, tx, audit, notice}),
   handleOrderRequest,
  ];
  const server=createServer(async(req,res)=>{const send=(status,data,headers={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data))};try{

@@ -128,15 +128,18 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
         } else if (['withdraw_cancel', 'deny_cancel', 'agree_cancel'].includes(action)) {
           assert(o.status === 'delivery' && o.cancel_status === 'pending' && (action === 'withdraw_cancel' ? u.id === o.cancel_by : u.id !== o.cancel_by));
           const result = { withdraw_cancel: 'withdrawn', deny_cancel: 'denied', agree_cancel: 'agreed' }[action];
+          const pending = db.prepare("SELECT id FROM cancel_requests WHERE order_id=? AND status='pending'").get(o.id);
+          if (pending && b.cancelRequestId !== pending.id || !pending && b.cancelRequestId !== undefined) {
+            fail(409, '取消申请已变化，请刷新订单');
+          }
           db.prepare('UPDATE orders SET cancel_status=?,status=? WHERE id=?').run(result, action === 'agree_cancel' ? 'cancelled' : o.status, o.id);
           // B05：把回应人、回应时间、结果写回本次申请，申请编号即表主键。
-          const pending = db.prepare("SELECT id FROM cancel_requests WHERE order_id=? AND status='pending' ORDER BY id DESC").get(o.id);
           if (pending) db.prepare('UPDATE cancel_requests SET status=?,responded_by=?,responded_at=? WHERE id=?').run(result, u.id, now(), pending.id);
           if (action === 'agree_cancel') release(o.product_id);
         } else if (action === 'deliver') {
           assert(o.status === 'delivery' && u.id === o.seller_id && o.cancel_status !== 'pending');
           const occurredAt = Number(b.occurredAt);
-          if (!Number.isFinite(occurredAt) || occurredAt <= 0 || occurredAt > now()) fail(400, '实际交付时间不合法');
+          if (!Number.isSafeInteger(b.occurredAt) || occurredAt < o.created_at || occurredAt > now()) fail(400, '实际交付时间不合法');
           const delivery = { location: text(b.location, 1, 200), note: text(b.note), occurredAt, recordedAt: now() };
           if (o.offer) {
             // B04：交换交付须分别记录双方物品；漏一件即拒绝且不改订单状态。

@@ -12,7 +12,7 @@ function storage() {
   };
 }
 
-function ctx({failOnPost = null, version = 1} = {}) {
+function ctx({failOnPost = null, version = 1, productId = 1} = {}) {
   const calls = [];
   const store = storage();
   globalThis.sessionStorage = store;
@@ -22,7 +22,7 @@ function ctx({failOnPost = null, version = 1} = {}) {
     if (path === '/products/1') return {version, images: []};
     return {ok: true};
   };
-  const args = {$: () => null, api, files: async () => [], toast: () => {}, navigate: () => {}, user: {id: 2}, selected: 1};
+  const args = {$: () => null, api, files: async () => [], toast: () => {}, navigate: () => {}, user: {id: 2}, selected: productId, productVersion:version};
   const orderCall = () => calls.find(c => c.path === '/orders').data;
   return {args, store, orderCall};
 }
@@ -37,21 +37,38 @@ test('B06 响应不确定时保留请求标识，明确业务拒绝时清除', a
   const first = ctx({failOnPost: new Error('网络连接失败，请检查本地服务是否已启动')});
   await assert.rejects(() => placeOrder(first.args));
   const firstKey = first.orderCall().requestKey;
-  const saved = first.store.getItem('campus.orderIntent.1');
+  const saved = first.store.getItem('campus.orderIntent.2.1');
   assert.ok(saved, '网络失败后保留未确认的下单意图');
   assert.equal(JSON.parse(saved).requestKey, firstKey);
 
-  const retry = ctx();
-  retry.store.setItem('campus.orderIntent.1', saved);
+  const retry = ctx({version:9});
+  retry.store.setItem('campus.orderIntent.2.1', saved);
   await placeOrder(retry.args);
-  assert.equal(retry.orderCall().requestKey, firstKey, '同参数重试沿用原标识');
-  assert.equal(retry.store.getItem('campus.orderIntent.1'), null, '成功后清除意图');
+  assert.deepEqual(retry.orderCall(),first.orderCall(),'重试沿用原标识、原版本和原参数');
+  assert.equal(retry.store.getItem('campus.orderIntent.2.1'), null, '成功后清除意图');
 
-  const refused = ctx({failOnPost: new Error('商品版本已更新，请刷新后重新确认')});
+  const refused = ctx({failOnPost: Object.assign(Error('商品版本已更新，请刷新后重新确认'),{status:409,code:'PRODUCT_VERSION_STALE'})});
   await assert.rejects(() => placeOrder(refused.args));
-  assert.equal(refused.store.getItem('campus.orderIntent.1'), null, '明确业务拒绝不保留旧标识');
+  assert.equal(refused.store.getItem('campus.orderIntent.2.1'), null, '明确业务拒绝不保留旧标识');
 
   const fresh = ctx();
   await placeOrder(fresh.args);
   assert.notEqual(fresh.orderCall().requestKey, firstKey, '重新发起时生成新标识');
+});
+
+test('B06 快速重复点击只发送一次', async () => {
+  const c=ctx({productId:2});
+  let calls=0;
+  let finish;
+  const response=new Promise(resolve=>{finish=resolve});
+  c.args.api=()=>{
+    calls++;
+    assert.ok(c.store.getItem('campus.orderIntent.2.2'));
+    return response;
+  };
+  const first=placeOrder(c.args);
+  await placeOrder(c.args);
+  assert.equal(calls,1);
+  finish({id:1});
+  await first;
 });

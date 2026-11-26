@@ -23,7 +23,7 @@ test('B05 协商取消审计与撤回后继续履约', async t => {
   assert.ok(cr.requested_at > 0, '申请时间可查');
   assert.equal(cr.responded_by, null);
 
-  await f.act(f.seller, o.id, 'agree_cancel');
+  await f.act(f.seller, o.id, 'agree_cancel', {cancelRequestId:cr.id});
   order = (await f.req(f.buyer, '/orders'))[0];
   assert.equal(order.status, 'cancelled');
   assert.equal(order.cancelRequests[0].status, 'agreed');
@@ -35,10 +35,15 @@ test('B05 协商取消审计与撤回后继续履约', async t => {
   const o2 = await f.order(pid2, 'cancel-audit-002');
   await f.act(f.seller, o2.id, 'accept');
   await f.act(f.buyer, o2.id, 'request_cancel', {reason: '再想想'});
-  await f.act(f.buyer, o2.id, 'withdraw_cancel');
+  const oldRequest=(await f.req(f.buyer,'/orders'))[0].cancelRequests[0].id;
+  await f.act(f.buyer, o2.id, 'withdraw_cancel',{cancelRequestId:oldRequest});
+  await f.act(f.buyer, o2.id, 'request_cancel',{reason:'另一份申请'});
+  const currentRequest=(await f.req(f.buyer,'/orders'))[0].cancelRequests.at(-1).id;
+  await f.act(f.seller, o2.id, 'agree_cancel',{cancelRequestId:oldRequest},409);
+  await f.act(f.buyer, o2.id, 'withdraw_cancel',{cancelRequestId:currentRequest});
   const second = (await f.req(f.buyer, '/orders'))[0];
   assert.equal(second.status, 'delivery', '撤回不结束订单');
-  assert.equal(second.cancelRequests.length, 1);
+  assert.equal(second.cancelRequests.length, 2);
   assert.equal(second.cancelRequests[0].status, 'withdrawn');
   assert.equal(second.cancelRequests[0].responded_by, second.buyer_id);
   await f.act(f.seller, o2.id, 'deliver', {location: '校门', note: '交付', occurredAt: f.now()});

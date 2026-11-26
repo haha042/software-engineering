@@ -60,7 +60,7 @@ async function api(path, method = 'GET', data, background = false) {
     }
     );
     const b = await r.json();
-    if (!r.ok) throw Error(b.error || '请求失败');
+    if (!r.ok) throw Object.assign(Error(b.error || '请求失败'), {status:r.status, code:b.code});
     return b;
   }
   catch (error) {
@@ -264,7 +264,7 @@ document.addEventListener('click',async ev=>{
       history.replaceState(null,'','#market');
       return refresh()
     }
-    if (b.dataset.action === 'buy') return await placeOrder({...orderActions, user, selected});
+    if (b.dataset.action === 'buy') return await placeOrder({...orderActions, user, selected, productVersion:Number(b.dataset.productVersion)});
   }
   catch(err){
     if(['register','buy'].includes(b.dataset.action))formError(err);

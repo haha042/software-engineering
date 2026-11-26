@@ -7,7 +7,9 @@ const REVIEW_WINDOW = 14 * 24 * 60 * 60 * 1000;
 const CANCEL_RESULTS = {pending: '待回应', agreed: '已同意', denied: '已拒绝', withdrawn: '已撤回'};
 
 function orderBtn(o, a, t) {
-  return `<button data-order="${o.id}:${a}">${t}</button>`;
+  const pending = ['withdraw_cancel','deny_cancel','agree_cancel'].includes(a)
+    ? o.cancelRequests?.find(request=>request.status==='pending') : null;
+  return `<button data-order="${o.id}:${a}${pending ? ':'+pending.id : ''}">${t}</button>`;
 }
 
 // 订单详情补充区块：目标图片、交换双方物品、取消申请审计、交付与评价。
@@ -76,8 +78,9 @@ export async function readNotification(id, {api, render}) {
 }
 
 export async function updateOrder(order, {api, toast, render}) {
-  const [id, action] = order.split(':');
+  const [id, action, cancelRequestId] = order.split(':');
   const data = {action};
+  if (cancelRequestId) data.cancelRequestId = Number(cancelRequestId);
   if (action === 'reject') {
     data.reason = prompt('请填写拒绝原因（必填）');
     if (!data.reason || !data.reason.trim()) { toast('拒绝原因不能为空', 'error'); return; }
@@ -104,45 +107,60 @@ export async function updateOrder(order, {api, toast, render}) {
   return render();
 }
 
-// B02/B06：详情版本随下单提交；同一商品的未完成下单意图复用同一 requestKey，
-// 网络失败或服务异常（响应不确定）时保留，明确业务拒绝时清除。
-export async function placeOrder({$, api, files, toast, navigate, user, selected}) {
+// 同一账号与商品的下单请求，在结果确定前保留第一次提交的参数。
+const activeOrders = new Set();
+const pendingOrders = new Map();
+
+export async function placeOrder({$, api, files, toast, navigate, render, user, selected, productVersion}) {
   if (!user) return navigate('auth');
-  const storageKey = 'campus.orderIntent.' + selected;
-  let intent = null;
-  try { intent = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch {}
-  const key = intent?.requestKey || crypto.randomUUID();
-  if (intent) toast('沿用上次未确认的请求标识重试');
-  const data = {productId: selected, requestKey: key};
+  const storageKey = 'campus.orderIntent.' + user.id + '.' + selected;
+  if (activeOrders.has(storageKey)) return;
+  activeOrders.add(storageKey);
   try {
-    const detail = await api('/products/' + selected);
-    if (Number.isInteger(detail.version)) data.productVersion = detail.version;
-  } catch { /* 详情不可用时由后端按缺省版本口径处理，不猜测版本 */ }
-  if ($('#offerform')) {
-    if (!$('#offerform').reportValidity()) return;
-    data.offer = {
-      title: $('#offerTitle').value,
-      description: $('#offerDescription').value,
-      condition: $('#offerCondition').value,
-      images: await files('#offerImages')
+    let data = pendingOrders.get(storageKey);
+    try { data ??= JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch {}
+    if (!data) {
+      if (!Number.isSafeInteger(productVersion) || productVersion < 1) {
+        throw Error('请刷新商品详情后重新确认');
+      }
+      data = {productId:selected, requestKey:crypto.randomUUID(), productVersion};
+      if ($('#offerform')) {
+        if (!$('#offerform').reportValidity()) return;
+        data.offer = {
+          title: $('#offerTitle').value,
+          description: $('#offerDescription').value,
+          condition: $('#offerCondition').value,
+          images: await files('#offerImages')
+        };
+        data.topup = Number($('#topup').value);
+        data.payer = $('#payer').value;
+      }
+      pendingOrders.set(storageKey,data);
+      try {
+        sessionStorage.setItem(storageKey,JSON.stringify(data));
+      } catch {
+        toast('无法保存跨刷新重试数据，请保持当前页面直到下单结果确认','error');
+      }
+    }
+    const clearIntent = ()=>{
+      pendingOrders.delete(storageKey);
+      try { sessionStorage.removeItem(storageKey); } catch {}
     };
-    data.topup = Number($('#topup').value);
-    data.payer = $('#payer').value;
-  }
-  try {
-    await api('/orders', 'POST', data);
-  } catch (err) {
-    const uncertain = err instanceof TypeError || /网络连接失败|服务异常|操作未完成/.test(err.message || '');
     try {
-      if (uncertain) sessionStorage.setItem(storageKey, JSON.stringify({requestKey: key, productId: selected}));
-      else sessionStorage.removeItem(storageKey);
-    } catch {}
-    if (uncertain) toast('下单结果未确认，请保持原参数重试；改用其他参数会被拒绝', 'error');
-    throw err;
+      await api('/orders','POST',data);
+    } catch (error) {
+      const definitive = error.status >= 400 && error.status < 500 && ![401,403,408,429].includes(error.status);
+      if (definitive) clearIntent();
+      if (error.code === 'PRODUCT_VERSION_STALE') await render?.();
+      if (!definitive) toast('下单结果未确认，再次提交会沿用原参数','error');
+      throw error;
+    }
+    clearIntent();
+    toast('下单成功，目标已锁定');
+    return navigate('orders');
+  } finally {
+    activeOrders.delete(storageKey);
   }
-  try { sessionStorage.removeItem(storageKey); } catch {}
-  toast('下单成功，目标已锁定');
-  return navigate('orders');
 }
 
 export async function submitOrderReview(id, {api, toast, render}) {

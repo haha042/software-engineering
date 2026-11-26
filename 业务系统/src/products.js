@@ -201,7 +201,7 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       const expectation = type === 'exchange' ? text(b.expectation === undefined ? p.expectation : b.expectation) : '';
       const imgs = b.images === undefined ? null : images(b.images);
       tx(() => {
-        db.prepare("UPDATE products SET title=?,category=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL WHERE id=?")
+        db.prepare("UPDATE products SET title=?,category=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL,version=version+1 WHERE id=?")
           .run(text(b.title === undefined ? p.title : b.title, 1, 80),
             text(b.category === undefined ? p.category : b.category, 1, 40),
             text(b.condition === undefined ? p.condition_text : b.condition, 1, 40),

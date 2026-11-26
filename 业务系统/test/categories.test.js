@@ -93,6 +93,8 @@ test('历史商品分类迁移：按旧文本建分类并回填 category_id，�
     VALUES(1,?,?,?,?,'sale',100,'','live',1)`);
   insert.run('旧书', '书籍教材', '九成新', '有笔记');
   insert.run('旧台灯', '生活用品', '八成新', '可正常使用');
+  // 模拟「老版本建的库」：分类迁移还没标记完成，下次打开时才应回填。
+  first.exec('PRAGMA user_version=0');
   first.close();
 
   const second = openDatabase(file);

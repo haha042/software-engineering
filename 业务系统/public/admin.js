@@ -35,7 +35,7 @@ export async function renderAdminPage({page, user, api, e, heading, emptyState, 
   }
   if(/^admin-users\/\d+$/.test(page)){
     const {account:a,certifications,counts}=await api('/admin/users/'+Number(page.split('/')[1]));
-    html=heading('账号详情',a.username)+`<section class="panel"><a href="#admin-users">返回账号列表</a><h2>基本资料</h2>${a.avatar?`<img class="avatar avatar-large" src="${e(a.avatar)}" alt="${e(a.username)}的头像">`:' <p>尚未设置头像</p>'}<dl><dt>账号编号</dt><dd>${a.id}</dd><dt>用户名</dt><dd>${e(a.username)}</dd><dt>昵称</dt><dd>${e(a.nickname||'未填写')}</dd><dt>简介</dt><dd>${e(a.bio||'未填写')}</dd><dt>角色</dt><dd>${a.role==='admin'?'管理员':'学生'}</dd><dt>校园认证</dt><dd>${a.certified?'已认证':'未认证'}</dd><dt>注册时间</dt><dd>${new Date(a.created_at).toLocaleString()}</dd><dt>登录状态</dt><dd>${a.locked_until>Date.now()?'登录锁定至 '+new Date(a.locked_until).toLocaleString():'未锁定'} · 连续失败 ${a.failed_attempts} 次</dd><dt>密码</dt><dd>已设置</dd><dt>业务记录</dt><dd>发布 ${counts.products} 件 · 订单 ${counts.orders} 笔</dd></dl><p class="muted">手机号、邮箱尚未采集。当前页面提供信息查看。</p></section><section class="panel"><h2>认证申请历史</h2>${certifications.map(c=>`<article class="notice"><h3>${e(c.real_name)} · ${e(c.student_no)}</h3><p>${label(c.status)} · 申请于 ${new Date(c.created_at).toLocaleString()}</p><p>审核人：${e(c.reviewer_name||'尚未审核')} ${c.reviewed_at?' · '+new Date(c.reviewed_at).toLocaleString():''}</p>${c.reason?`<p>审核理由：${e(c.reason)}</p>`:''}</article>`).join('')||'<p>暂无认证申请。</p>'}</section><section class="panel"><h2>权限与账号恢复</h2><p class="muted">授权变更立即生效；撤销与恢复都需要填写原因，操作会写入审计留痕。</p>${a.role==='admin'?`<button data-grant="${a.id}:revoke">撤销管理员权限</button>`:`<button data-grant="${a.id}:grant">设为管理员</button>`} ${a.locked_until>Date.now()?`<button data-unlock="${a.id}">解除登录锁定</button>`:'<span class="muted">当前未处于登录锁定状态。</span>'}</section>`;
+    html=heading('账号详情',a.username)+`<section class="panel"><a href="#admin-users">返回账号列表</a><h2>基本资料</h2>${a.avatar?`<img class="avatar avatar-large" src="${e(a.avatar)}" alt="${e(a.username)}的头像">`:' <p>尚未设置头像</p>'}<dl><dt>账号编号</dt><dd>${a.id}</dd><dt>用户名</dt><dd>${e(a.username)}</dd><dt>昵称</dt><dd>${e(a.nickname||'未填写')}</dd><dt>简介</dt><dd>${e(a.bio||'未填写')}</dd><dt>角色</dt><dd>${a.role==='admin'?'管理员':'学生'}</dd><dt>校园认证</dt><dd>${a.certified?'已认证':'未认证'}</dd><dt>注册时间</dt><dd>${new Date(a.created_at).toLocaleString()}</dd><dt>登录状态</dt><dd>${a.locked_until>Date.now()?'登录锁定至 '+new Date(a.locked_until).toLocaleString():'未锁定'} · 连续失败 ${a.failed_attempts} 次</dd><dt>密码</dt><dd>已设置</dd><dt>业务记录</dt><dd>发布 ${counts.products} 件 · 订单 ${counts.orders} 笔</dd></dl><p class="muted">手机号、邮箱尚未采集。当前页面提供信息查看。</p></section><section class="panel"><h2>认证申请历史</h2>${certifications.map(c=>`<article class="notice"><h3>${e(c.real_name)} · ${e(c.student_no)}</h3><p>${label(c.status)} · 申请于 ${new Date(c.created_at).toLocaleString()}</p><p>审核人：${e(c.reviewer_name||'尚未审核')} ${c.reviewed_at?' · '+new Date(c.reviewed_at).toLocaleString():''}</p>${c.reason?`<p>审核理由：${e(c.reason)}</p>`:''}</article>`).join('')||'<p>暂无认证申请。</p>'}</section><section class="panel"><h2>权限与账号恢复</h2><p class="muted">授权变更立即生效；撤销、恢复与重置密码都需要填写原因，操作会写入审计留痕。</p>${a.role==='admin'?`<button data-grant="${a.id}:revoke">撤销管理员权限</button>`:`<button data-grant="${a.id}:grant">设为管理员</button>`} ${a.locked_until>Date.now()?`<button data-unlock="${a.id}">解除登录锁定</button>`:'<span class="muted">当前未处于登录锁定状态。</span>'} <button data-pwd="${a.id}">重置登录密码</button></section>`;
   }
   if(page==='admin'){
     if(user.role!=='admin')throw Error('需要管理员权限');
@@ -111,6 +111,18 @@ export async function unlockAccount(id,{api,toast,render}){
   if(!reason)return;
   await api(`/admin/users/${id}/restore`,'POST',{reason});
   toast('账号已恢复，可以重新登录');
+  return render();
+}
+
+// 核验后重置密码：管理员须线下确认身份，再设置新密码；该账号已有会话会被全部撤销。
+export async function resetPassword(id,{api,toast,render}){
+  const reason=prompt('核验说明（至少 5 个字，会写入审计留痕，例如：本人带学号到值班室核验）');
+  if(!reason)return;
+  const password=prompt('新密码（8 位以上，需同时包含字母和数字）');
+  if(!password)return;
+  if(!confirm('确认已完成线下身份核验并重置该学生的密码？已有登录会话将失效。'))return;
+  const done=await api(`/admin/users/${id}/password`,'POST',{reason,password,offlineVerified:true});
+  toast(`密码已重置，已撤销 ${done.sessionsRevoked||0} 个登录会话`);
   return render();
 }
 

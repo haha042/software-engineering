@@ -37,6 +37,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS order_images(
   data_url TEXT NOT NULL
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS order_images_order ON order_images(order_id, id)');
+// B05：一次取消申请一行，编号/申请人/时间与回应人/时间/结果完整留痕。
+db.exec(`CREATE TABLE IF NOT EXISTS cancel_requests(
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id),
+  requested_by INTEGER NOT NULL REFERENCES users(id),
+  requested_at INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  responded_by INTEGER REFERENCES users(id),
+  responded_at INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS cancel_requests_order ON cancel_requests(order_id, id)');
 // 兼容已有数据库，保留旧商品，未填写地点时由页面明确提示。
 if(!db.prepare('PRAGMA table_info(products)').all().some(c=>c.name==='delivery_location')){
  db.exec("ALTER TABLE products ADD COLUMN delivery_location TEXT NOT NULL DEFAULT ''");

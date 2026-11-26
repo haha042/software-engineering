@@ -39,8 +39,10 @@ export async function readNotification(id, {api, render}) {
 
 export async function updateOrder(order, {api, toast, render}) {
   const [id,action]=order.split(':');
-  const data={action};
-  if(action==='reject'){data.reason=prompt('请填写拒绝原因（必填）');if(!data.reason||!data.reason.trim()){toast('拒绝原因不能为空','error');return}}
+  let data={
+    action
+  }
+  ;
   if(action==='request_cancel'){
     data.reason=prompt('取消原因');
     if(!data.reason)return
@@ -50,35 +52,51 @@ export async function updateOrder(order, {api, toast, render}) {
     if(!data.location)return;
     data.note=prompt('交付说明，交换须说明全部物品');
     if(!data.note)return;
-    data.occurredAt=Date.now();
-    const current=(await api('/orders')).find(x=>x.id===Number(id));
-    if(current?.offer){
-      if(!confirm('请逐件确认：卖家物品「'+current.snapshot.title+'」已当面交付？'))return;
-      if(!confirm('请逐件确认：买家提供的「'+current.offer.title+'」已当面交付？'))return;
-      data.items={seller:{delivered:true},buyer:{delivered:true}};
-    }
+    data.occurredAt=Date.now()
   }
   await api('/orders/'+id+'/action','POST',data);
   toast('订单已更新');
   return render()
 }
 
+// B02/B06：详情版本随下单提交；同一商品的未完成下单意图复用同一 requestKey，
+// 网络失败或服务异常（响应不确定）时保留，明确业务拒绝时清除。
 export async function placeOrder({$, api, files, toast, navigate, user, selected}) {
-  if(!user){
-    return navigate('auth');
+  if (!user) return navigate('auth');
+  const storageKey = 'campus.orderIntent.' + selected;
+  let intent = null;
+  try { intent = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch {}
+  const key = intent?.requestKey || crypto.randomUUID();
+  if (intent) toast('沿用上次未确认的请求标识重试');
+  const data = {productId: selected, requestKey: key};
+  try {
+    const detail = await api('/products/' + selected);
+    if (Number.isInteger(detail.version)) data.productVersion = detail.version;
+  } catch { /* 详情不可用时由后端按缺省版本口径处理，不猜测版本 */ }
+  if ($('#offerform')) {
+    if (!$('#offerform').reportValidity()) return;
+    data.offer = {
+      title: $('#offerTitle').value,
+      description: $('#offerDescription').value,
+      condition: $('#offerCondition').value,
+      images: await files('#offerImages')
+    };
+    data.topup = Number($('#topup').value);
+    data.payer = $('#payer').value;
   }
-  const data={productId:selected,requestKey:crypto.randomUUID()};
-  try{const detail=await api('/products/'+selected);if(Number.isInteger(detail.version))data.productVersion=detail.version}catch{}
-  if($('#offerform')){
-    if(!$('#offerform').reportValidity())return;
-    data.offer={
-      title:$('#offerTitle').value,description:$('#offerDescription').value,condition:$('#offerCondition').value,images:await files('#offerImages')
-    }
-    ;
-    data.topup=Number($('#topup').value);
-    data.payer=$('#payer').value
+  try {
+    await api('/orders', 'POST', data);
+  } catch (err) {
+    const uncertain = err instanceof TypeError || /网络连接失败|服务异常|操作未完成/.test(err.message || '');
+    try {
+      if (uncertain) sessionStorage.setItem(storageKey, JSON.stringify({requestKey: key, productId: selected}));
+      else sessionStorage.removeItem(storageKey);
+    } catch {}
+    if (uncertain) toast('下单结果未确认，请保持原参数重试；改用其他参数会被拒绝', 'error');
+    throw err;
   }
-  await api('/orders','POST',data);
+  try { sessionStorage.removeItem(storageKey); } catch {}
   toast('下单成功，目标已锁定');
   return navigate('orders');
 }
+

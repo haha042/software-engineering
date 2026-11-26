@@ -1,7 +1,7 @@
 import {createMessages} from './messages.js';
 import {renderAccountPage, createAccountActions} from './accounts.js';
 import {renderAdminPage, filterAccounts, reviewItem, grantAction, unlockAccount, applyAuditFilter, resetAuditFilter, saveCategory, categoryAction} from './admin.js';
-import {renderOrderPage, placeOrder, readNotification, updateOrder} from './orders.js';
+import {renderOrderPage, placeOrder, readNotification, updateOrder, submitOrderReview, replyOrderReview} from './orders.js';
 import {renderProductPage, publishProduct, saveDraft, saveProductEdit, changeProductState, toggleFavorite, applyFilters, resetFilters} from './products.js';
 
 const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"']/g,c=>({
@@ -9,6 +9,12 @@ const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"']/g,c=>({
 }
 [c]));
 let user=null,csrf='',page=location.hash.slice(1)||'market',selected=null,loading=false;
+
+function readDetailRoute() {
+  const match=/^detail\/(\d+)$/.exec(page);
+  if(match){selected=Number(match[1]);page='detail';}
+}
+readDetailRoute();
 const labels={
   pending:'待审核',approved:'通过',rejected:'驳回',live:'在售',reserved:'已预订',sold:'已成交',off:'已下架',delivery:'待交付',confirmation:'待双方确认',completed:'已完成',cancelled:'已取消',closed:'已关闭',sale:'出售',gift:'免费转让',exchange:'以物易物'
 }
@@ -60,7 +66,7 @@ async function api(path, method = 'GET', data, background = false) {
     }
     );
     const b = await r.json();
-    if (!r.ok) throw Error(b.error || '请求失败');
+    if (!r.ok) throw Object.assign(Error(b.error || '请求失败'), {status:r.status, code:b.code});
     return b;
   }
   catch (error) {
@@ -248,9 +254,12 @@ document.addEventListener('click',async ev=>{
     if(b.dataset.detail){
       selected=+b.dataset.detail;
       page='detail';
+      history.replaceState(null,'','#detail/'+selected);
       return render()
     }
     if (b.dataset.review) return await reviewItem(b.dataset.review, adminActions);
+    if (b.dataset.orderReview) return await submitOrderReview(b.dataset.orderReview, orderActions);
+    if (b.dataset.orderReply) return await replyOrderReview(b.dataset.orderReply, orderActions);
     if (b.dataset.cat) return await categoryAction(b.dataset.cat, adminActions);
     if (b.dataset.grant) return await grantAction(b.dataset.grant, adminActions);
     if (b.dataset.unlock) return await unlockAccount(b.dataset.unlock, adminActions);
@@ -268,7 +277,7 @@ document.addEventListener('click',async ev=>{
       history.replaceState(null,'','#market');
       return refresh()
     }
-    if (b.dataset.action === 'buy') return await placeOrder({...orderActions, user, selected});
+    if (b.dataset.action === 'buy') return await placeOrder({...orderActions, user, selected, productVersion:Number(b.dataset.productVersion)});
   }
   catch(err){
     if(['register','buy'].includes(b.dataset.action))formError(err);
@@ -278,6 +287,7 @@ document.addEventListener('click',async ev=>{
 );
 window.addEventListener('hashchange',()=>{
   page=location.hash.slice(1)||'market';
+  readDetailRoute();
   render()
 }
 );

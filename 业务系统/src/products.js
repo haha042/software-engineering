@@ -222,7 +222,7 @@ export function createProductRoutes({db, now, auth, body, fail, text, session, i
       const imgs = b.images === undefined ? null : images(b.images);
       const category = b.categoryId === undefined ? null : resolveCategory(b);
       tx(() => {
-        db.prepare("UPDATE products SET title=?,category=?,category_id=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL WHERE id=?")
+        db.prepare("UPDATE products SET title=?,category=?,category_id=?,condition_text=?,description=?,trade_type=?,price=?,expectation=?,delivery_location=?,status='pending',review_reason=NULL,version=version+1 WHERE id=?")
           .run(text(b.title === undefined ? p.title : b.title, 1, 80),
             category ? category.name : p.category,
             category ? category.id : p.category_id,

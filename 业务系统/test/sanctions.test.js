@@ -10,7 +10,7 @@ test('账号处置：7 天限制、30 天封禁、到期恢复与存量履约',a
  const sellerId=(await req(seller,'/me')).user.id,buyerId=(await req(buyer,'/me')).user.id;
  const categoryId=(await req(admin,'/admin/categories','POST',{name:'生活用品'},201)).id;
  const product=await req(seller,'/products','POST',{title:'测试自行车',categoryId,condition:'八成新',description:'用于处置测试的商品',tradeType:'sale',price:200,deliveryLocation:'北校区图书馆正门',images:[png]},201);await req(admin,'/admin/products/'+product.id,'POST',{action:'approve'});
- const order=await req(buyer,'/orders','POST',{productId:product.id,requestKey:'sanction-test-01'},201);
+ const order=await req(buyer,'/orders','POST',{productId:product.id,requestKey:'sanction-test-01', productVersion: 1},201);
 
  // 普通用户不能处置，也不能看处置列表。
  await req(buyer,'/admin/users/'+sellerId+'/sanction','POST',{action:'limit',reason:'普通用户尝试处置账号'},403);
@@ -26,7 +26,7 @@ test('账号处置：7 天限制、30 天封禁、到期恢复与存量履约',a
  assert.equal(limited.state,'limited');assert.equal(limited.until,time+7*DAY);
  await req(seller,'/products','POST',{title:'限制期不能发布',categoryId,condition:'九成新',description:'限制期发布应被拒绝',tradeType:'sale',price:10,deliveryLocation:'北校区图书馆正门',images:[png]},403);
  await req(admin,'/admin/users/'+buyerId+'/sanction','POST',{action:'limit',reason:'买家被限制用于验证下单'});
- await req(buyer,'/orders','POST',{productId:product.id,requestKey:'sanction-test-02'},403);
+ await req(buyer,'/orders','POST',{productId:product.id,requestKey:'sanction-test-02', productVersion: 1},403);
  // 限制中的卖家仍可接单，限制中的买家仍可取消：存量履约不受影响。
  await req(seller,'/orders/'+order.id+'/action','POST',{action:'accept'});
  await req(buyer,'/orders/'+order.id+'/action','POST',{action:'request_cancel',reason:'临时有事不想要了'});

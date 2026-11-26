@@ -60,6 +60,8 @@ try{
    await until("document.querySelector('#authform')");
    await js("const form=document.querySelector('#authform');form.elements.username.value='admin';form.elements.password.value='DemoPassword123!';form.requestSubmit()");
    await until("document.querySelector('#account').innerText.includes('管理员')");
+   await js("location.hash='publish'");
+   await until("document.querySelector('#app').innerText.includes('使用已认证的学生账号发布物品')");
    await js("location.hash='admin'");
    await until("document.querySelector('a[href=\"#admin-statistics\"]')");
    await js("document.querySelector('a[href=\"#admin-statistics\"]').click()");
@@ -86,6 +88,8 @@ try{
  await until("document.querySelector('#authform')");
  await js("const form=document.querySelector('#authform');form.elements.username.value='browserbuyer';form.elements.password.value='DemoPassword123!';form.requestSubmit()");
  await until("document.querySelector('#account').innerText.includes('browserbuyer')");
+ await js("location.hash='publish'");
+ await until("document.querySelector('#publishform') && document.querySelector('#draftId').value===''");
  await js(`location.hash='detail/${sale}'`);
  await until("document.querySelector('[data-product-version=\"1\"]')");
  db.prepare('UPDATE products SET price=2000,version=2 WHERE id=?').run(sale);

@@ -11,7 +11,7 @@ import {openDatabase} from './database.js';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 function passwordHash(p){const salt=randomBytes(16).toString('hex');return `${salt}:${scryptSync(p,salt,64).toString('hex')}`;}
 function verify(p,stored){const [salt,h]=stored.split(':');return timingSafeEqual(scryptSync(p,salt,64),Buffer.from(h,'hex'));}
-// 可选业务错误码 code：供前端区分「版本过期需刷新」等场景，旧调用行为不变。
+// 可选 code：稳定的业务错误码，供前端区分「版本过期需刷新」等场景；旧调用不传时行为不变。
 class Failure extends Error{constructor(status,message,code){super(message);this.status=status;this.code=code;}}
 const fail=(s,m,code)=>{throw new Failure(s,m,code)};
 const text=(x,min=1,max=2000)=>{if(typeof x!=='string'||x.trim().length<min||x.trim().length>max)fail(400,`文字须为${min}～${max}字符`);return x.trim()};

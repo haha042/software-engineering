@@ -1,7 +1,7 @@
 import {createMessages} from './messages.js';
 import {renderAccountPage, createAccountActions} from './accounts.js';
 import {renderAdminPage, filterAccounts, reviewItem} from './admin.js';
-import {renderOrderPage, placeOrder, readNotification, updateOrder} from './orders.js';
+import {renderOrderPage, placeOrder, readNotification, updateOrder, submitOrderReview, replyOrderReview} from './orders.js';
 import {renderProductPage, publishProduct, saveDraft, saveProductEdit, changeProductState, toggleFavorite, applyFilters, resetFilters} from './products.js';
 
 const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"']/g,c=>({
@@ -249,6 +249,8 @@ document.addEventListener('click',async ev=>{
       return render()
     }
     if (b.dataset.review) return await reviewItem(b.dataset.review, adminActions);
+    if (b.dataset.orderReview) return await submitOrderReview(b.dataset.orderReview, orderActions);
+    if (b.dataset.orderReply) return await replyOrderReview(b.dataset.orderReply, orderActions);
     if (b.dataset.read) return await readNotification(b.dataset.read, orderActions);
     if (b.dataset.order) return await updateOrder(b.dataset.order, orderActions);
     if(b.dataset.action==='auth'){

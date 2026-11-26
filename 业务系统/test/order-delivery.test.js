@@ -32,10 +32,13 @@ test('B04 拒单理由与交换交付双方物品记录', async t => {
     offer:{condition:'九成新', title:' 交换用教材 ', images:[png],description:'内容完整'}
   },201);
   assert.equal(replay.id,exOrder.id);
+  const createdAt = f.now();
+  f.advance(60_000);
   await f.act(f.seller, exOrder.id, 'accept');
-  const baseDelivery = {location: '图书馆正门', note: '当面交换', occurredAt: f.now()};
+  // 接单后才可提交记录，但实际交付时间可以等于订单创建时间。
+  const baseDelivery = {location: '图书馆正门', note: '当面交换', occurredAt: createdAt};
   await f.act(f.seller, exOrder.id, 'deliver', {
-    ...baseDelivery,occurredAt:f.now()-1,items:{seller:{delivered:true},buyer:{delivered:true}}
+    ...baseDelivery,occurredAt:createdAt-1,items:{seller:{delivered:true},buyer:{delivered:true}}
   },400);
   const partial = await f.act(f.seller, exOrder.id, 'deliver',
     {...baseDelivery, items: {seller: {delivered: true}}}, 400);
@@ -47,6 +50,7 @@ test('B04 拒单理由与交换交付双方物品记录', async t => {
   const ex = (await f.req(f.buyer, '/orders'))[0];
   assert.equal(ex.status, 'confirmation');
   const delivery = JSON.parse(ex.delivery);
+  assert.equal(delivery.occurredAt, createdAt);
   assert.equal(delivery.items.seller.title, '交换用台灯');
   assert.equal(delivery.items.seller.productId, exId, '目标项带 productId');
   assert.equal(delivery.items.buyer.title, '交换用教材');

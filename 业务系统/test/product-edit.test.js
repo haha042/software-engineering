@@ -68,7 +68,7 @@ test('C04 编辑与驳回重提：驳回可重提、在售改动重新审核、�
   // 4) 下单后商品进入预订中，卖家不能改，且订单快照保持下单时的样子
   const orderedId = await publish('会被预订的书', 40);
   await req(admin, '/admin/products/' + orderedId, 'POST', {action: 'approve'});
-  const order = await req(buyer, '/orders', 'POST', {requestKey: 'req-c04-0001', productId: orderedId}, 201);
+  const order = await req(buyer, '/orders', 'POST', {requestKey: 'req-c04-0001', productVersion: 1, productId: orderedId}, 201);
   assert.equal((await req(seller, '/products/' + orderedId)).status, 'reserved');
   await req(seller, '/products/' + orderedId, 'PATCH', {title: '预订中偷改标题', price: 1}, 409);
 

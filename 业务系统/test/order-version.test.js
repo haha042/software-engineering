@@ -17,6 +17,17 @@ test('B02/B06 商品版本校验与下单重试幂等', async t => {
   assert.equal(v2.version, 2);
   assert.equal(v2.title, '改名后的台灯');
 
+  const missing = await f.req(f.buyer, '/orders', 'POST',
+    {productId: pid, requestKey: 'missing-version-01'}, 400);
+  assert.equal(missing.code, 'PRODUCT_VERSION_REQUIRED');
+  assert.match(missing.error, /刷新页面或更新客户端/);
+  for (const productVersion of [null, '2', 0, 1.5]) {
+    await f.req(f.buyer, '/orders', 'POST',
+      {productId: pid, requestKey: 'malformed-version-01', productVersion}, 400);
+  }
+  assert.equal((await f.req(f.buyer, '/products/' + pid)).status, 'live');
+  assert.deepEqual(await f.req(f.buyer, '/orders'), []);
+
   const stale = await f.req(f.buyer, '/orders', 'POST',
     {productId: pid, requestKey: 'stale-version-01', productVersion: 1}, 409);
   assert.equal(stale.code, 'PRODUCT_VERSION_STALE');

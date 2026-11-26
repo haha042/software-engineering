@@ -69,7 +69,7 @@ test('C05 下架与重新上架：只有本人可操作，预订中被拒，公�
 
   // 4) 预订中的商品不能下架
   await approve(pendingId);
-  await req(buyer, '/orders', 'POST', {requestKey: 'req-c05-0001', productId: pendingId}, 201);
+  await req(buyer, '/orders', 'POST', {requestKey: 'req-c05-0001', productVersion: 1, productId: pendingId}, 201);
   assert.equal((await req(seller, '/products/' + pendingId)).status, 'reserved');
   await req(seller, '/products/' + pendingId + '/status', 'POST', {action: 'off'}, 409);
   assert.equal(await visible(pendingId), false, '预订中的商品本来就不在公开列表');

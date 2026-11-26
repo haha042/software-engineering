@@ -89,8 +89,10 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
     if (path === '/api/orders' && method === 'POST') {
       const u = auth(req, 'student'), b = await body(req);
       const key = text(b.requestKey, 8, 100);
-      // B02 默认口径：productVersion 可选；显式提交时严格校验，缺省沿用旧客户端行为（待 #12 确认后收紧）。
-      if (b.productVersion !== undefined && (!Number.isInteger(b.productVersion) || b.productVersion < 1)) fail(400, '商品版本格式错误');
+      if (b.productVersion === undefined) {
+        fail(400, '缺少商品版本，请刷新页面或更新客户端后再下单', 'PRODUCT_VERSION_REQUIRED');
+      }
+      if (!Number.isSafeInteger(b.productVersion) || b.productVersion < 1) fail(400, '商品版本格式错误');
       const id = tx(() => {
         const old = db.prepare('SELECT * FROM orders WHERE buyer_id=? AND request_key=?').get(u.id, key);
         if (old) {
@@ -101,7 +103,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
             || old.topup !== topup
             || JSON.stringify(offer) !== (old.offer || 'null')
             || payer !== old.payer
-            || (b.productVersion !== undefined && b.productVersion !== agreedVersion)) {
+            || b.productVersion !== agreedVersion) {
             fail(409, '请求标识已用于不同参数');
           }
           return old.id;
@@ -111,7 +113,7 @@ export function createOrderRoutes({db, now, auth, body, fail, text, images, amou
         if (p.owner_id === u.id) fail(403, '不能下单本人商品');
         const owner = db.prepare('SELECT * FROM users WHERE id=?').get(p.owner_id);
         if (accountState(owner) !== 'normal') fail(409, '卖家暂不可接受新订单');
-        if (b.productVersion !== undefined && b.productVersion !== p.version) fail(409, '商品版本已更新，请刷新后重新确认', 'PRODUCT_VERSION_STALE');
+        if (b.productVersion !== p.version) fail(409, '商品版本已更新，请刷新后重新确认', 'PRODUCT_VERSION_STALE');
         const {offer,topup,payer} = orderTerms(b,p.trade_type);
         const r = db.prepare('INSERT INTO orders(product_id,buyer_id,seller_id,snapshot,offer,topup,payer,request_key,deadline,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
           .run(p.id, u.id, p.owner_id, JSON.stringify(p), offer ? JSON.stringify(offer) : null, topup, payer, key, now() + 172800000, now());

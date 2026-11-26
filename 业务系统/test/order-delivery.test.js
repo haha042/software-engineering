@@ -23,12 +23,12 @@ test('B04 拒单理由与交换交付双方物品记录', async t => {
 
   const exId = await f.publish({title: '交换用台灯', tradeType: 'exchange', price: null, expectation: '想换教材'});
   const exOrder = await f.req(f.buyer, '/orders', 'POST', {
-    productId: exId, requestKey: 'exchange-key-01',
+    productId: exId, requestKey: 'exchange-key-01', productVersion: 1,
     offer: {title: '交换用教材', description: '内容完整', condition: '九成新', images: [png]},
     topup: 0
   }, 201);
   const replay=await f.req(f.buyer,'/orders','POST',{
-    productId:exId, requestKey:'exchange-key-01', topup:0, payer:'buyer',
+    productId:exId, requestKey:'exchange-key-01', productVersion: 1, topup:0, payer:'buyer',
     offer:{condition:'九成新', title:' 交换用教材 ', images:[png],description:'内容完整'}
   },201);
   assert.equal(replay.id,exOrder.id);

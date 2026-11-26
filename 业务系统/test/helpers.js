@@ -57,7 +57,7 @@ export async function fixture(t, {database = ':memory:', clock} = {}) {
     return p.id;
   };
   const order = async (productId, key = 'request-key-0001', extra = {}) =>
-    req(buyer, '/orders', 'POST', {productId, requestKey: key, ...extra}, 201);
+    req(buyer, '/orders', 'POST', {productId, requestKey: key, productVersion: 1, ...extra}, 201);
   const act = (c, id, action, data = {}, expected = 200) =>
     req(c, '/orders/' + id + '/action', 'POST', {action, ...data}, expected);
   // 时钟推进超过会话有效期后重新登录，避免把 401 误判成业务结果。

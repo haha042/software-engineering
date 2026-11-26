@@ -39,10 +39,8 @@ export async function readNotification(id, {api, render}) {
 
 export async function updateOrder(order, {api, toast, render}) {
   const [id,action]=order.split(':');
-  let data={
-    action
-  }
-  ;
+  const data={action};
+  if(action==='reject'){data.reason=prompt('请填写拒绝原因（必填）');if(!data.reason||!data.reason.trim()){toast('拒绝原因不能为空','error');return}}
   if(action==='request_cancel'){
     data.reason=prompt('取消原因');
     if(!data.reason)return
@@ -52,7 +50,13 @@ export async function updateOrder(order, {api, toast, render}) {
     if(!data.location)return;
     data.note=prompt('交付说明，交换须说明全部物品');
     if(!data.note)return;
-    data.occurredAt=Date.now()
+    data.occurredAt=Date.now();
+    const current=(await api('/orders')).find(x=>x.id===Number(id));
+    if(current?.offer){
+      if(!confirm('请逐件确认：卖家物品「'+current.snapshot.title+'」已当面交付？'))return;
+      if(!confirm('请逐件确认：买家提供的「'+current.offer.title+'」已当面交付？'))return;
+      data.items={seller:{delivered:true},buyer:{delivered:true}};
+    }
   }
   await api('/orders/'+id+'/action','POST',data);
   toast('订单已更新');
